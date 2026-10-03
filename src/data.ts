@@ -56,90 +56,62 @@ export const ARCHETYPES: Record<string, ArchetypeDetails> = {
 export const QUIZ_QUESTIONS: QuizQuestion[] = [
   {
     id: "q1",
-    question: "Your dream dating location looks like...",
+    question: "Your ideal Saturday looks like…",
     options: [
-      { text: "A cozy corner in an indie bookstore, sharing a hot beverage", archetype: "homebody" },
-      { text: "A rooftop stargazing session talking about space and time", archetype: "idealist" },
-      { text: "An impromptu road trip to an antique market or secret beach", archetype: "adventurer" },
-      { text: "An arcade bar filled with vintage games and playful competition", archetype: "witty" },
-      { text: "A quiet art museum or record shop, dissecting a niche exhibition", archetype: "thinker" }
+      { text: "Slow morning, book, nowhere to be", archetype: "homebody" },
+      { text: "Cooking for two or three friends", archetype: "idealist" },
+      { text: "Market, museum, then noodles", archetype: "thinker" },
+      { text: "Up early, out all day, home late", archetype: "adventurer" }
     ]
   },
   {
     id: "q2",
-    question: "When someone shares an important personal story with you, you...",
+    question: "At a party you usually…",
     options: [
-      { text: "Empathize completely and hold their space with high emotional validation", archetype: "idealist" },
-      { text: "Listen intently and offer constructive philosophical perspectives", archetype: "thinker" },
-      { text: "Defuse deep tension with a soft, affectionate joke or warm tease", archetype: "witty" },
-      { text: "Listen warmly and offer comfort, wrapping them in cozy vibes", archetype: "homebody" },
-      { text: "Acknowledge it, then suggest a physical activity or walk to change the atmosphere", archetype: "adventurer" }
+      { text: "Find the quiet kitchen conversation", archetype: "thinker" },
+      { text: "Stay near people I already know", archetype: "homebody" },
+      { text: "Float between groups", archetype: "idealist" },
+      { text: "End up running the playlist", archetype: "adventurer" }
     ]
   },
   {
     id: "q3",
-    question: "A perfect Sunday morning in your books is...",
+    question: "A trip with you is…",
     options: [
-      { text: "Sleeping in, making slow sourdough pancakes, and listening to vinyl", archetype: "homebody" },
-      { text: "Waking up early for a mountain run or exploring a new farmer's market", archetype: "adventurer" },
-      { text: "Journaling thoughts, planning life goals, and sipping pour-over coffee", archetype: "thinker" },
-      { text: "Answering funny group chat messages and sharing memes in bed", archetype: "witty" },
-      { text: "Writing down poetry or dreaming up creative projects under the sheets", archetype: "idealist" }
+      { text: "Wander and decide at breakfast", archetype: "adventurer" },
+      { text: "A loose list of maybes", archetype: "idealist" },
+      { text: "Mostly booked, room to improvise", archetype: "thinker" },
+      { text: "A color-coded itinerary", archetype: "homebody" }
     ]
   },
   {
     id: "q4",
-    question: "Your ideal conversational frequency is...",
+    question: "Your humor is mostly…",
     options: [
-      { text: "Dueling with playful banter, quick-witted jokes, and heavy sarcasm", archetype: "witty" },
-      { text: "Diving into complex art, science, movies, or existential philosophies", archetype: "thinker" },
-      { text: "Exchanging deeply vulnerable stories, emotional realities, and future dreams", archetype: "idealist" },
-      { text: "Swapping stories of travel, wild life experiences, and exciting plans", archetype: "adventurer" },
-      { text: "Comfortable silences, gentle check-ins, and soft daily updates", archetype: "homebody" }
+      { text: "Dry and understated", archetype: "thinker" },
+      { text: "Warm and teasing", archetype: "idealist" },
+      { text: "Absurd and surreal", archetype: "witty" },
+      { text: "Loud and theatrical", archetype: "adventurer" }
     ]
   },
   {
     id: "q5",
-    question: "If your life was a movie, its visual and story style would be...",
+    question: "You open up through…",
     options: [
-      { text: "A warm, comforting indie drama with a gorgeous acoustic soundtrack", archetype: "homebody" },
-      { text: "A fast-paced road trip film full of unexpected plot twists", archetype: "adventurer" },
-      { text: "A thoughtful, visually stunning intellectual mystery with quiet pauses", archetype: "thinker" },
-      { text: "A charming romantic comedy featuring rapid, snappy dialogue", archetype: "witty" },
-      { text: "A magical-realist poetic journey centering around deep human bonds", archetype: "idealist" }
+      { text: "Long letters and voice notes", archetype: "idealist" },
+      { text: "Late night deep talks", archetype: "thinker" },
+      { text: "Playful back-and-forth", archetype: "witty" },
+      { text: "Doing things side-by-side", archetype: "homebody" }
     ]
   },
   {
     id: "q6",
-    question: "How do you prefer to resolve differences in relationships?",
+    question: "When you really want something, you…",
     options: [
-      { text: "Taking individual space to write down, analyze, and process my thoughts first", archetype: "thinker" },
-      { text: "Addressing feelings immediately with deep empathy and open hearts", archetype: "idealist" },
-      { text: "Using light-hearted humor to soften the mood, then resolving it together", archetype: "witty" },
-      { text: "Talking quietly over tea in a cozy environment, prioritizing stability", archetype: "homebody" },
-      { text: "Going for a run or drive together, shifting environments to clear our heads", archetype: "adventurer" }
-    ]
-  },
-  {
-    id: "q7",
-    question: "What's your primary way of showing affection?",
-    options: [
-      { text: "Verbal affirmations—writing letters or articulating precisely how much you matter", archetype: "idealist" },
-      { text: "Quality time—undivided attention, reading side-by-side, or cozy cooking", archetype: "homebody" },
-      { text: "Thoughtful acts—making coffee exactly how you like it or curating playlists", archetype: "thinker" },
-      { text: "Playful teasing and light touches—creating inside jokes and banter", archetype: "witty" },
-      { text: "Spontaneous surprises—booking a random workshop or taking you to a secret spot", archetype: "adventurer" }
-    ]
-  },
-  {
-    id: "q8",
-    question: "Choose a favorite vibe or theme...",
-    options: [
-      { text: "Soft hoodies, evening strolls, and sharing wireless headphones", archetype: "homebody" },
-      { text: "Live gigs, street tacos, neon signs, and cold beers", archetype: "adventurer" },
-      { text: "Vintage record players, film cameras, dark espresso, and cozy library smells", archetype: "thinker" },
-      { text: "Stand-up comedy clubs, heated board game nights, and bright laughter", archetype: "witty" },
-      { text: "String lights, handwritten journals, and watching the rain from the window", archetype: "idealist" }
+      { text: "Make a plan and quietly stick to it", archetype: "thinker" },
+      { text: "Follow the feeling until it clicks", archetype: "idealist" },
+      { text: "Turn it into a challenge", archetype: "witty" },
+      { text: "Jump in and learn on the way", archetype: "adventurer" }
     ]
   }
 ];
