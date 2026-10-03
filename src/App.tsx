@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
-import { Capacitor } from "@capacitor/core";
-import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
-import { AnimatePresence, motion } from "motion/react";
-import { RefreshCw, Sparkles, Smartphone } from "lucide-react";
-import PwaInstallPrompt from "./components/PwaInstallPrompt";
+import { Heart, Info, Sparkles } from "lucide-react";
 import { auth, db } from "./lib/firebase";
 import { Profile } from "./types";
 import Onboarding from "./components/Onboarding";
 import Dashboard from "./components/Dashboard";
+import BlindArt from "./components/BlindArt";
 
 type LocalUser = {
   uid: string;
@@ -40,266 +38,142 @@ function createLocalUser(): LocalUser {
 }
 
 export default function App() {
-  const isNative = Capacitor.isNativePlatform();
-  const isStandalonePwa = typeof window !== "undefined" && (
-    window.matchMedia?.("(display-mode: standalone)").matches ||
-    (navigator as Navigator & { standalone?: boolean }).standalone === true
-  );
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
-  const [googleError, setGoogleError] = useState("");
-
-  const startLocalDemo = () => {
-    const localUser = createLocalUser();
-    setUser(localUser);
-    setProfile(readCachedProfile(localUser.uid));
-  };
-
-  const handleGoogleSignIn = async () => {
-    setIsSigningInGoogle(true);
-    setGoogleError("");
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      console.warn("Google Sign In Error:", err);
-      setGoogleError(err?.message || "Failed to sign in with Google.");
-    } finally {
-      setIsSigningInGoogle(false);
-    }
-  };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+    return onAuthStateChanged(auth, async (authUser) => {
       setLoading(true);
-
       if (authUser) {
         setUser(authUser);
         try {
-          const profileSnap = await Promise.race([
-            getDoc(doc(db, "profiles", authUser.uid)),
-            new Promise<any>((_, reject) =>
-              setTimeout(() => reject(new Error("Timeout connecting to Firestore")), 8000),
-            ),
-          ]);
-
-          if (profileSnap?.exists()) {
-            setProfile(profileSnap.data() as Profile);
-          } else {
-            setProfile(readCachedProfile(authUser.uid));
-          }
-        } catch (error) {
-          console.warn("Could not retrieve profile from Firestore; using local cache:", error);
+          const snapshot = await getDoc(doc(db, "profiles", authUser.uid));
+          setProfile(snapshot.exists() ? (snapshot.data() as Profile) : readCachedProfile(authUser.uid));
+        } catch {
           setProfile(readCachedProfile(authUser.uid));
-        } finally {
-          setLoading(false);
         }
+        setLoading(false);
         return;
       }
 
-      // Local test mode persists across native, PWA, and browser launches without depending on OAuth.
-      const storedLocalUid = localStorage.getItem(LOCAL_UID_KEY);
-      if (storedLocalUid) {
-        const localUser: LocalUser = {
-          uid: storedLocalUid,
-          displayName: "You",
-          isLocalFallback: true,
-        };
+      const stored = localStorage.getItem(LOCAL_UID_KEY);
+      if (stored) {
+        const localUser: LocalUser = { uid: stored, displayName: "You", isLocalFallback: true };
         setUser(localUser);
-        setProfile(readCachedProfile(storedLocalUid));
+        setProfile(readCachedProfile(stored));
       } else {
         setUser(null);
         setProfile(null);
       }
       setLoading(false);
     });
+  }, []);
 
-    return () => unsubscribe();
-  }, [isNative]);
+  const startLocalDemo = () => {
+    const local = createLocalUser();
+    setUser(local);
+    setProfile(readCachedProfile(local.uid));
+  };
 
   const handleOnboardingComplete = (newProfile: Profile) => {
     setProfile(newProfile);
-    if (user?.uid) {
-      localStorage.setItem(`blindspark_profile_${user.uid}`, JSON.stringify(newProfile));
-    }
+    localStorage.setItem(`blindspark_profile_${newProfile.id}`, JSON.stringify(newProfile));
   };
 
   const handleLogout = async () => {
     if (!user) return;
-    setLoading(true);
-
-    const isLocalUser = user.uid?.startsWith("local_") || user.isLocalFallback;
-
-    try {
-      if (isLocalUser) {
-        localStorage.removeItem(LOCAL_UID_KEY);
-      } else {
-        await signOut(auth);
-      }
-      setUser(null);
-      setProfile(null);
-    } catch (error) {
-      console.warn("Error signing out:", error);
-      setUser(null);
-      setProfile(null);
-    } finally {
-      setLoading(false);
-    }
+    const local = user.uid?.startsWith("local_") || user.isLocalFallback;
+    if (local) localStorage.removeItem(LOCAL_UID_KEY);
+    else await signOut(auth).catch(() => undefined);
+    setUser(null);
+    setProfile(null);
   };
 
   const handleResetProfile = async () => {
     if (!user) return;
-    if (!window.confirm("Reset your profile and retake the personality quiz? Your current profile will be cleared.")) {
-      return;
-    }
-
-    setLoading(true);
-    const isLocalUser = user.uid?.startsWith("local_") || user.isLocalFallback;
+    if (!window.confirm("Reset your profile and retake the personality quiz?")) return;
     localStorage.removeItem(`blindspark_profile_${user.uid}`);
-
-    try {
-      if (!isLocalUser) {
-        await deleteDoc(doc(db, "profiles", user.uid));
-      }
-    } catch (error) {
-      console.warn("Could not delete cloud profile:", error);
-    }
-
+    if (!user.uid?.startsWith("local_")) await deleteDoc(doc(db, "profiles", user.uid)).catch(() => undefined);
     setProfile(null);
-    setLoading(false);
   };
 
   const handleProfileUpdate = (updated: Profile) => {
     setProfile(updated);
-    if (user?.uid) {
-      localStorage.setItem(`blindspark_profile_${user.uid}`, JSON.stringify(updated));
-    }
+    localStorage.setItem(`blindspark_profile_${updated.id}`, JSON.stringify(updated));
   };
 
   if (loading) {
     return (
-      <div className="app-safe-screen bg-[#FCFAF7] text-stone-900 flex flex-col justify-center items-center">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center gap-4"
-        >
-          <div className="w-14 h-14 bg-gradient-to-tr from-rose-500 to-amber-500 rounded-2xl flex items-center justify-center shadow-lg shadow-rose-500/10">
-            <Sparkles className="w-7 h-7 text-white animate-pulse" />
-          </div>
-          <h1 className="text-xl font-black bg-gradient-to-r from-rose-600 to-amber-600 bg-clip-text text-transparent">
-            blindSpark
-          </h1>
-          <div className="flex items-center gap-1.5 mt-2">
-            <RefreshCw className="w-3.5 h-3.5 text-rose-500 animate-spin" />
-            <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
-              Starting your experience...
-            </span>
-          </div>
-        </motion.div>
+      <div className="app-safe-screen bg-[#fffaf4] flex items-center justify-center text-[#2b1b18]">
+        <div className="w-14 h-14 rounded-[18px] bg-gradient-to-br from-[#ef3e61] to-[#ff7a22] flex items-center justify-center animate-pulse">
+          <Sparkles className="w-7 h-7 text-white" />
+        </div>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="app-safe-screen bg-[#FCFAF7] text-stone-900 flex flex-col justify-center items-center px-4 py-8 select-none">
-        <div className="w-full max-w-md bg-white border border-stone-200/75 rounded-3xl shadow-xl shadow-stone-200/30 p-6 md:p-8 relative overflow-hidden">
-          <div className="absolute -top-12 -left-12 w-48 h-48 bg-rose-200/20 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute -bottom-12 -right-12 w-48 h-48 bg-amber-200/20 rounded-full blur-3xl" />
-
-          <div className="text-center flex flex-col items-center py-6 relative z-10">
-            <div className="w-16 h-16 bg-gradient-to-tr from-rose-500 to-amber-500 rounded-2xl flex items-center justify-center shadow-lg shadow-rose-500/15 mb-6">
-              <Sparkles className="w-8 h-8 text-white animate-pulse" />
-            </div>
-            <h1 className="text-3xl font-extrabold font-display tracking-tight bg-gradient-to-r from-rose-600 to-amber-600 bg-clip-text text-transparent mb-3">
-              blindSpark
-            </h1>
-            <p className="text-stone-600 text-sm mb-8 leading-relaxed max-w-xs">
-              A personality-first dating experience where conversation comes before photos.
-            </p>
-
-            <div className="w-full space-y-3">
-              <button
-                type="button"
-                onClick={startLocalDemo}
-                className="w-full py-4 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white rounded-xl font-bold flex items-center justify-center gap-2.5 shadow-md shadow-rose-500/10 hover:shadow-lg transition-all duration-300 cursor-pointer"
-              >
-                <Smartphone className="w-5 h-5" />
-                {isNative || isStandalonePwa ? "Try blindSpark on this iPhone" : "Try blindSpark — no account needed"}
-              </button>
-              <p className="text-[11px] leading-relaxed text-stone-400 max-w-xs mx-auto">
-                Test mode stores your profile, matches, and chats only on this device.
-              </p>
-
-              <div className="flex items-center gap-3 py-1">
-                <div className="h-px flex-1 bg-stone-200" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-stone-300">or</span>
-                <div className="h-px flex-1 bg-stone-200" />
+      <div className="app-safe-screen min-h-[100dvh] bg-[#fffaf4] text-[#2b1b18] font-sans overflow-y-auto">
+        <main className="max-w-md mx-auto px-5 pt-9 pb-12">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-[18px] bg-gradient-to-br from-[#ef3e61] to-[#ff7a22] flex items-center justify-center shadow-[0_8px_20px_rgba(238,65,87,.16)]">
+                <Sparkles className="w-7 h-7 text-white" />
               </div>
-
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={isSigningInGoogle}
-                className="w-full py-3.5 bg-white border border-stone-200 hover:bg-stone-50 text-stone-800 rounded-xl font-bold flex items-center justify-center gap-2.5 transition-all duration-300 disabled:opacity-75 cursor-pointer"
-              >
-                {isSigningInGoogle ? (
-                  <>
-                    <div className="w-5 h-5 border-2 border-stone-400 border-t-transparent rounded-full animate-spin" />
-                    <span>Signing in with Google...</span>
-                  </>
-                ) : (
-                  <span>Sign In with Google</span>
-                )}
-              </button>
-
-              {googleError && (
-                <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl text-left w-full">
-                  <p className="text-[12px] text-rose-600 font-bold">Google Sign-In Error</p>
-                  <p className="mt-1 text-[11px] text-rose-500 font-medium leading-relaxed">{googleError}</p>
-                </div>
-              )}
+              <div className="text-[28px] font-black tracking-[-0.045em]">BlindSpark</div>
             </div>
+            <span className="rounded-full bg-[#fff1e9] px-4 py-2 text-[16px] font-bold">Demo – 18+</span>
           </div>
-        </div>
-        <PwaInstallPrompt />
+
+          <div className="relative flex justify-center mb-9">
+            <BlindArt className="w-[290px] h-[290px] rounded-[42px] shadow-[0_24px_50px_rgba(232,75,91,.18)]" />
+            <div className="absolute right-[-2px] top-[42px] bg-white rounded-full px-5 py-3 text-[18px] font-extrabold shadow-[0_10px_25px_rgba(49,31,25,.13)]">92% in sync</div>
+            <div className="absolute left-[-6px] bottom-[24px] bg-white rounded-full px-4 py-3 text-[17px] font-extrabold shadow-[0_10px_25px_rgba(49,31,25,.13)]">No photos yet</div>
+          </div>
+
+          <h1 className="text-[45px] leading-[0.98] font-black tracking-[-0.055em] mb-5">
+            Fall for the <span className="text-[#ee3c55]">person</span>, not the picture.
+          </h1>
+          <p className="text-[20px] leading-[1.5] text-[#766761] mb-7">
+            Answer a few honest questions, meet demo personalities, and see who truly fits.
+          </p>
+
+          <button
+            type="button"
+            onClick={startLocalDemo}
+            className="w-full h-[72px] rounded-[28px] bg-gradient-to-r from-[#e83e5d] to-[#ff6f20] text-white text-[22px] font-black flex items-center justify-center gap-3 shadow-[0_12px_28px_rgba(232,62,93,.22)]"
+          >
+            <Heart className="w-7 h-7" />
+            Try BlindSpark on this iPhone
+          </button>
+
+          <button
+            type="button"
+            onClick={startLocalDemo}
+            className="w-full h-[68px] mt-4 rounded-[27px] border-2 border-[#2b1b18] bg-white text-[19px] font-extrabold"
+          >
+            Try BlindSpark — no account needed
+          </button>
+
+          <div className="mt-5 rounded-[28px] bg-[#fde3e8] px-5 py-5 flex gap-3 text-[16px] leading-relaxed">
+            <Info className="w-6 h-6 text-[#e84962] shrink-0 mt-0.5" />
+            <p><strong>Accounts are not available.</strong> There is no sign in, no Google login, and no server. This is a local demo; everything stays on this device.</p>
+          </div>
+        </main>
       </div>
     );
   }
 
+  if (!profile) return <Onboarding userId={user.uid} onComplete={handleOnboardingComplete} />;
+
   return (
-    <div className="app-safe-screen bg-[#FCFAF7] text-stone-900 select-none">
-      <AnimatePresence mode="wait">
-        {!profile ? (
-          <motion.div
-            key="onboarding"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="w-full"
-          >
-            <Onboarding userId={user.uid} onComplete={handleOnboardingComplete} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="dashboard"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="w-full"
-          >
-            <Dashboard
-              currentUser={profile}
-              onLogout={handleLogout}
-              onProfileUpdate={handleProfileUpdate}
-              onResetProfile={handleResetProfile}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <Dashboard
+      currentUser={profile}
+      onLogout={handleLogout}
+      onProfileUpdate={handleProfileUpdate}
+      onResetProfile={handleResetProfile}
+    />
   );
 }
