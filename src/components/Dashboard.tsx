@@ -415,6 +415,29 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
             </div>
 
             <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
+              <h2 className="text-[23px] font-black mb-3">Safety & age</h2>
+              <p className="text-[15px] text-[#7b6c66] leading-relaxed">
+                Status: <strong>{currentUser.verificationStatus === "verified" ? "Age verified" : "18+ self-confirmed"}</strong>.
+                Real ID/age verification can be connected without changing the profile flow.
+              </p>
+              <button
+                onClick={() => {
+                  const base = import.meta.env.VITE_AGE_VERIFICATION_URL;
+                  if (!base) {
+                    alert("Age verification provider is not configured yet. Add VITE_AGE_VERIFICATION_URL when you choose a provider.");
+                    return;
+                  }
+                  const url = new URL(base, window.location.origin);
+                  url.searchParams.set("userId", currentUser.id);
+                  window.location.href = url.toString();
+                }}
+                className="w-full h-14 mt-4 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold"
+              >
+                {currentUser.verificationStatus === "verified" ? "Verified ✓" : "Verify my age"}
+              </button>
+            </div>
+
+            <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
               <h2 className="text-[23px] font-black mb-3">Notifications</h2>
               <p className="text-[15px] text-[#7b6c66] leading-relaxed mb-4">Get alerts for new messages. Browser alerts work immediately; closed-app push activates when Firebase Cloud Messaging and the VAPID key are configured.</p>
               <button onClick={requestNotifications} className="w-full h-14 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold flex items-center justify-center gap-2">
