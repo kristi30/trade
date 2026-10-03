@@ -400,10 +400,6 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
         </div>
       </div>
 
-      <div className="px-4 py-1.5 bg-white border-b border-stone-100 text-[9px] text-stone-400 font-semibold text-center">
-        Demo partners reply 60 seconds after your message.
-      </div>
-
       {/* Message Pane */}
       <div 
         ref={messageContainerRef}
