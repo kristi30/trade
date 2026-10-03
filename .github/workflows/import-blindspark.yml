@@ -1,0 +1,50 @@
+name: Import BlindSpark source
+
+on:
+  push:
+    paths:
+      - "_upload/READY"
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Reconstruct BlindSpark archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/blindspark-import
+          cat _upload/chunk_*.b64 | tr -d '\n' | base64 --decode > /tmp/blindspark-import/blindspark.zip
+          unzip -q /tmp/blindspark-import/blindspark.zip -d /tmp/blindspark-import/unpacked
+          test -f /tmp/blindspark-import/unpacked/blindspark_local/package.json
+
+      - name: Replace repository with BlindSpark source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude "_upload/" \
+            /tmp/blindspark-import/unpacked/blindspark_local/ ./
+          rm -rf _upload
+
+      - name: Commit imported project
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git commit -m "Import BlindSpark PWA v3 source"
+          git push
