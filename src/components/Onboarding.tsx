@@ -112,7 +112,8 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       quizAnswers,
       bio: bio.trim(),
       sparkPrompts: {},
-      ageVerified: Number(age) >= 18,
+      ageVerified: false,
+      verificationStatus: "self_confirmed",
     };
 
     localStorage.setItem(`blindspark_profile_${userId}`, JSON.stringify(profile));
