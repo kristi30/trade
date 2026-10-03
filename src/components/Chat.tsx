@@ -335,7 +335,7 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
   const partnerArchetype = ARCHETYPES[partnerProfile.archetype];
 
   return (
-    <div className="flex-1 flex flex-col bg-white border border-stone-200/75 rounded-3xl overflow-hidden h-[540px] md:h-[580px] max-w-md w-full mx-auto relative shadow-2xl">
+    <div className="chat-screen-shell flex flex-col bg-white md:border md:border-stone-200/75 rounded-none md:rounded-3xl relative md:shadow-2xl">
       {/* Chat Header */}
       <div className={`p-4 bg-gradient-to-r ${partnerArchetype.gradient} border-b border-stone-200/60 flex items-center gap-3 z-10 shadow-xs`}>
         <button
@@ -406,7 +406,7 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className="flex-1 p-4 overflow-y-auto flex flex-col gap-3.5 bg-[#FCFAF7] scrollbar-none relative"
+        className="chat-message-pane flex-1 p-4 flex flex-col gap-3.5 bg-[#fffaf4] scrollbar-none relative"
       >
         {/* Drag and Drop Overlay */}
         {isDragging && (
@@ -556,7 +556,7 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
       {/* Input Box */}
       <form
         onSubmit={handleSendMessage}
-        className="p-3 bg-white border-t border-stone-200/80 flex items-center gap-2 z-10 relative"
+        className="chat-composer-safe px-3 pt-3 bg-white border-t border-stone-200/80 flex items-center gap-2 z-10 relative shrink-0"
       >
         {/* Hidden native input file trigger */}
         <input
