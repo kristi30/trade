@@ -1,30 +1,22 @@
-import { useState, useEffect } from "react";
-import { collection, query, getDocs, doc, setDoc, addDoc, serverTimestamp } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { collection, doc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
+import { AlertCircle, Info, MapPin, RefreshCw, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { db } from "../lib/firebase";
-import { ARCHETYPES, SEED_PROFILES } from "../data";
-import { Profile, Match } from "../types";
+import { SEED_PROFILES } from "../data";
+import { Match, Profile } from "../types";
 import { calculateCompatibility } from "../utils";
-import { Heart, X, MapPin, Sparkles, AlertCircle, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import BlindArt from "./BlindArt";
 
-// Simple module-level cache for profiles to make tab switching and discovery instant
 let cachedRawProfiles: Profile[] | null = null;
 
 function getDistanceKm(lat1?: number, lon1?: number, lat2?: number, lon2?: number): number {
-  if (lat1 === undefined || lon1 === undefined || lat2 === undefined || lon2 === undefined) {
-    return Infinity;
-  }
-  const R = 6371; // Radius of the earth in km
+  if (lat1 === undefined || lon1 === undefined || lat2 === undefined || lon2 === undefined) return Infinity;
+  const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 interface DiscoveryProps {
@@ -36,162 +28,100 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(!cachedRawProfiles);
-  const [swipedIds, setSwipedIds] = useState<Set<string>>(new Set());
-  const [showReasons, setShowReasons] = useState(false);
   const [showMatchModal, setShowMatchModal] = useState<{ match: Match; partner: Profile } | null>(null);
+  const [dragX, setDragX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
 
   useEffect(() => {
     async function fetchProfiles() {
       const isLocalMode = !currentUser.id || currentUser.id.startsWith("local_");
-      
-      // If we already have cached profiles, render them immediately so there is zero delay
-      if (cachedRawProfiles && cachedRawProfiles.length > 0) {
-        processAndSetProfiles(cachedRawProfiles);
+      if (cachedRawProfiles?.length) {
+        process(cachedRawProfiles);
         setLoading(false);
-      } else {
-        setLoading(true);
-      }
+      } else setLoading(true);
 
       let fetched: Profile[] = [];
-
       try {
         if (!isLocalMode) {
-          // Race the Firestore getDocs call with a 10s timeout for instant loading fallback
-          const q = collection(db, "profiles");
-          const queryPromise = getDocs(q);
-          const timeoutPromise = new Promise<null>((_, reject) =>
-            setTimeout(() => reject(new Error("Firestore fetch timeout")), 10000)
-          );
-
-          const querySnapshot = await Promise.race([queryPromise, timeoutPromise]);
-          if (querySnapshot) {
-            querySnapshot.forEach((docSnap) => {
-              const data = docSnap.data() as Profile;
-              if (data.id !== currentUser.id) {
-                fetched.push(data);
-              }
-            });
-            // Update global cache
-            cachedRawProfiles = fetched;
-          }
+          const snapshot = await Promise.race([
+            getDocs(collection(db, "profiles")),
+            new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 6000)),
+          ]);
+          snapshot?.forEach((item) => {
+            const profile = item.data() as Profile;
+            if (profile.id !== currentUser.id) fetched.push(profile);
+          });
         }
       } catch (error) {
-        console.warn("Fast fallback triggered for profiles:", error);
+        console.warn("Using demo profiles:", error);
       }
 
-      // If we still have no profiles (due to timeout or local mode), use seed profiles
       if (fetched.length < 2) {
-        const seedFetched: Profile[] = [];
-        SEED_PROFILES.forEach((p) => {
-          const docId = `seed_${p.name.toLowerCase()}`;
-          if (docId !== currentUser.id) {
-            seedFetched.push({
-              ...p,
-              id: docId,
-            } as Profile);
-          }
-        });
-        fetched = seedFetched;
-        cachedRawProfiles = fetched;
+        fetched = SEED_PROFILES.map((profile) => ({
+          ...profile,
+          id: `seed_${profile.name.toLowerCase()}`,
+        } as Profile));
       }
-
-      processAndSetProfiles(fetched);
+      cachedRawProfiles = fetched;
+      process(fetched);
       setLoading(false);
     }
 
-    function processAndSetProfiles(rawList: Profile[]) {
-      // Apply gender/lookingFor compatibility filters
-      const filtered = rawList.map((data) => {
-        // If it is a bot (isAI or starting with seed_), set its location to be near the user's city
-        const isBot = data.isAI || data.id.startsWith("seed_");
-        if (isBot) {
-          return {
-            ...data,
-            location: currentUser.location || data.location,
-            latitude: currentUser.latitude,
-            longitude: currentUser.longitude,
-            isAI: true
-          };
-        }
-        return data;
-      }).filter((data) => {
-        let matchGender = false;
-        if (currentUser.lookingFor === "everyone") {
-          matchGender = true;
-        } else if (currentUser.lookingFor === data.gender) {
-          matchGender = true;
-        }
-
-        let matchTheyWant = false;
-        if (data.lookingFor === "everyone") {
-          matchTheyWant = true;
-        } else if (data.lookingFor === currentUser.gender) {
-          matchTheyWant = true;
-        }
-
-        return matchGender && matchTheyWant;
+    function process(raw: Profile[]) {
+      const normalized = raw.map((profile) => {
+        const demo = profile.isAI || profile.id.startsWith("seed_");
+        return demo ? {
+          ...profile,
+          location: currentUser.location || profile.location,
+          latitude: currentUser.latitude,
+          longitude: currentUser.longitude,
+          isAI: true,
+        } : profile;
       });
 
-      // Split into prioritized nearby real profiles, bots, and other profiles
-      const realNearby: Profile[] = [];
-      const bots: Profile[] = [];
-      const others: Profile[] = [];
-
-      filtered.forEach((data) => {
-        const isBot = data.isAI || data.id.startsWith("seed_");
-        if (isBot) {
-          bots.push(data);
-        } else {
-          // Real profile: check distance if user has coords
-          if (currentUser.latitude !== undefined && currentUser.longitude !== undefined && data.latitude !== undefined && data.longitude !== undefined) {
-            const distance = getDistanceKm(currentUser.latitude, currentUser.longitude, data.latitude, data.longitude);
-            if (distance <= 500) {
-              realNearby.push(data);
-            } else {
-              others.push(data);
-            }
-          } else {
-            others.push(data);
-          }
-        }
+      const filtered = normalized.filter((profile) => {
+        const demo = profile.isAI || profile.id.startsWith("seed_");
+        if (demo) return true;
+        const userFlexible = !currentUser.gender || currentUser.gender === "unspecified";
+        const wantsFlexible = !currentUser.lookingFor || currentUser.lookingFor === "everyone";
+        const genderFits = wantsFlexible || currentUser.lookingFor === profile.gender;
+        const theyWantUs = userFlexible || profile.lookingFor === "everyone" || profile.lookingFor === currentUser.gender;
+        return genderFits && theyWantUs;
       });
 
-      // Shuffle subsets for natural experience
-      const shuffle = (arr: Profile[]) => [...arr].sort(() => Math.random() - 0.5);
-
-      // Combine with prioritization: real nearby users FIRST, then bots, then other real users
-      const prioritized = [...shuffle(realNearby), ...shuffle(bots), ...shuffle(others)];
-      setProfiles(prioritized);
+      setProfiles([...filtered].sort(() => Math.random() - 0.5));
     }
 
-    fetchProfiles();
+    void fetchProfiles();
   }, [currentUser]);
 
   const activeProfile = profiles[currentIndex];
 
+  const rememberAction = (liked: boolean, profileId: string) => {
+    if (liked) {
+      const key = `blindspark_sparks_sent_${currentUser.id}`;
+      localStorage.setItem(key, String(Number(localStorage.getItem(key) || "0") + 1));
+    } else {
+      const key = `blindspark_skipped_${currentUser.id}`;
+      const skipped: string[] = JSON.parse(localStorage.getItem(key) || "[]");
+      if (!skipped.includes(profileId)) skipped.push(profileId);
+      localStorage.setItem(key, JSON.stringify(skipped));
+    }
+  };
+
   const handleSwipe = async (liked: boolean) => {
     if (!activeProfile || isSwiping) return;
     setIsSwiping(true);
-
-    // Record swipe locally
-    setSwipedIds((prev) => {
-      const next = new Set(prev);
-      next.add(activeProfile.id);
-      return next;
-    });
+    rememberAction(liked, activeProfile.id);
 
     if (liked) {
       const isBot = activeProfile.isAI || activeProfile.id.startsWith("seed_");
       const isLocalMode = !currentUser.id || currentUser.id.startsWith("local_");
-      // Demo/bot profiles match only 1 time out of 4. Real profiles keep the existing prototype behavior.
       const shouldMatch = isBot ? Math.random() < 0.25 : true;
 
       if (shouldMatch) {
-        // Create compatibility match
         const compat = calculateCompatibility(currentUser.archetype, activeProfile.archetype);
         const matchId = [currentUser.id, activeProfile.id].sort().join("_");
-
         const matchData: Match = {
           id: matchId,
           users: [currentUser.id, activeProfile.id],
@@ -200,276 +130,159 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
           unlocked: false,
         };
 
-        // Save match to localStorage
-        const localMatchesStr = localStorage.getItem(`blindspark_matches_${currentUser.id}`) || "[]";
-        const currentLocalMatches: Match[] = JSON.parse(localMatchesStr);
-        if (!currentLocalMatches.some((m) => m.id === matchId)) {
-          currentLocalMatches.push(matchData);
-          localStorage.setItem(`blindspark_matches_${currentUser.id}`, JSON.stringify(currentLocalMatches));
+        const key = `blindspark_matches_${currentUser.id}`;
+        const current: Match[] = JSON.parse(localStorage.getItem(key) || "[]");
+        if (!current.some((match) => match.id === matchId)) {
+          current.push(matchData);
+          localStorage.setItem(key, JSON.stringify(current));
         }
-
-        // Note: Bots only text if the real person texts first. So we DO NOT write any initial greeting message.
-        // This starts the chat history as completely empty.
 
         if (!isLocalMode) {
-          // Run Firestore writes in the background to ensure instant feedback to the user
-          setDoc(doc(db, "matches", matchId), {
-            ...matchData,
-            createdAt: serverTimestamp(),
-          }).catch((e) => {
-            console.warn("Could not write match to Firestore:", e);
-          });
+          setDoc(doc(db, "matches", matchId), { ...matchData, createdAt: serverTimestamp() }).catch(() => undefined);
         }
-
-        // Trigger matched modal
         setShowMatchModal({ match: matchData, partner: activeProfile });
       }
     }
 
-    // Move to next card
-    setShowReasons(false);
-    setCurrentIndex((prev) => prev + 1);
-    window.setTimeout(() => setIsSwiping(false), 280);
+    setDragX(0);
+    setCurrentIndex((index) => index + 1);
+    window.setTimeout(() => setIsSwiping(false), 260);
   };
 
   const handleResetDiscovery = () => {
     setCurrentIndex(0);
-    setSwipedIds(new Set());
     setProfiles((prev) => [...prev].sort(() => Math.random() - 0.5));
   };
 
   if (loading) {
     return (
-      <div className="flex-1 flex flex-col justify-center items-center py-20 bg-[#FCFAF7]">
-        <RefreshCw className="w-8 h-8 text-rose-500 animate-spin mb-4" />
-        <p className="text-stone-500 text-sm font-bold font-display">Scanning local compatibility sparks...</p>
+      <div className="min-h-[65vh] flex items-center justify-center">
+        <RefreshCw className="w-8 h-8 text-[#e84962] animate-spin" />
       </div>
     );
   }
 
-  if (currentIndex >= profiles.length || !activeProfile) {
+  if (!activeProfile) {
     return (
-      <div className="flex-1 flex flex-col justify-center items-center text-center py-12 px-6 bg-[#FCFAF7]">
-        <div className="w-16 h-16 bg-white border border-stone-200/80 rounded-2xl flex items-center justify-center mb-6 shadow-sm">
-          <AlertCircle className="w-8 h-8 text-stone-400" />
+      <div className="min-h-[70vh] flex flex-col items-center justify-center text-center px-8">
+        <div className="w-24 h-24 rounded-[30px] bg-[#fde3e8] flex items-center justify-center mb-7">
+          <AlertCircle className="w-12 h-12 text-[#df4860]" />
         </div>
-        <h3 className="text-xl font-black font-display tracking-tight mb-2 text-stone-900">No local sparks left</h3>
-        <p className="text-stone-500 text-sm max-w-xs mb-8 font-medium leading-relaxed">
-          You have swiped on all compatible profiles in your area. Check back soon for new local connections!
-        </p>
-        <button
-          onClick={handleResetDiscovery}
-          className="px-6 py-3 bg-stone-900 hover:bg-stone-850 text-white rounded-xl font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all duration-200 cursor-pointer shadow-md"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Rewind & Recalibrate
-        </button>
+        <h2 className="text-[28px] font-black">You reached the end</h2>
+        <p className="text-[#796a64] text-[18px] mt-3">You have seen the current demo pool.</p>
+        <button onClick={handleResetDiscovery} className="mt-7 px-7 py-4 rounded-[22px] bg-gradient-to-r from-[#df4a60] to-[#ef7938] text-white font-black">Start again</button>
       </div>
     );
   }
 
-  const archetypeInfo = ARCHETYPES[activeProfile.archetype];
   const compatibility = calculateCompatibility(currentUser.archetype, activeProfile.archetype);
-
   const isDemoProfile = activeProfile.isAI || activeProfile.id.startsWith("seed_");
   const stableHash = [...activeProfile.id].reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const demoDistanceKm = (0.6 + (stableHash % 35) / 10).toFixed(1);
-  const realDistanceKm = getDistanceKm(
-    currentUser.latitude,
-    currentUser.longitude,
-    activeProfile.latitude,
-    activeProfile.longitude,
-  );
-  const distanceLabel = isDemoProfile
-    ? `${demoDistanceKm} km away`
-    : Number.isFinite(realDistanceKm)
-      ? `${realDistanceKm.toFixed(1)} km away`
-      : "Nearby";
+  const demoDistanceKm = 5 + (stableHash % 18);
+  const actualDistance = getDistanceKm(currentUser.latitude, currentUser.longitude, activeProfile.latitude, activeProfile.longitude);
+  const distance = isDemoProfile ? `${demoDistanceKm} km (simulated)` : Number.isFinite(actualDistance) ? `${actualDistance.toFixed(0)} km` : "Nearby";
 
   return (
-    <div className="flex-1 flex flex-col items-center max-w-md w-full mx-auto relative px-2 bg-[#FCFAF7]">
+    <div className="px-5 pt-5 pb-5">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h1 className="text-[32px] leading-none font-black tracking-[-0.045em]">Discover</h1>
+          <p className="text-[17px] text-[#7c6c66] mt-2">{profiles.length} demo profiles for you</p>
+        </div>
+        <button type="button" className="w-14 h-14 rounded-full border-2 border-[#2b1b18] bg-white flex items-center justify-center">
+          <SlidersHorizontal className="w-6 h-6" />
+        </button>
+      </div>
+
       <AnimatePresence mode="wait">
         <motion.div
           key={activeProfile.id}
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -10 }}
-          transition={{ duration: 0.3 }}
           drag="x"
           dragConstraints={{ left: 0, right: 0 }}
-          dragElastic={0.92}
+          dragElastic={0.9}
           dragMomentum={false}
-          onDragEnd={(_event, info) => {
-            const threshold = 95;
-            if (info.offset.x >= threshold) {
-              void handleSwipe(true);
-            } else if (info.offset.x <= -threshold) {
-              void handleSwipe(false);
-            }
+          onDrag={(_, info) => setDragX(info.offset.x)}
+          onDragEnd={(_, info) => {
+            if (info.offset.x > 95) void handleSwipe(true);
+            else if (info.offset.x < -95) void handleSwipe(false);
+            else setDragX(0);
           }}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0, rotate: dragX / 32 }}
+          exit={{ opacity: 0, scale: 0.96 }}
           style={{ touchAction: "pan-y" }}
-          className={`w-full bg-gradient-to-b ${archetypeInfo.gradient} to-white border border-stone-200/85 rounded-3xl overflow-hidden flex flex-col shadow-xl shadow-stone-100/40 relative min-h-[540px] md:min-h-[580px] p-6 text-stone-900 ${isSwiping ? "pointer-events-none" : "cursor-grab active:cursor-grabbing"}`}
+          className={`relative rounded-[34px] border-2 border-[#2b1b18] overflow-hidden bg-white shadow-[0_20px_35px_rgba(238,72,91,.10)] ${isSwiping ? "pointer-events-none" : ""}`}
         >
-          {/* Subtle background radar circles */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] border border-stone-300/10 rounded-full pointer-events-none animate-pulse" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[450px] h-[450px] border border-stone-300/10 rounded-full pointer-events-none" />
+          <div className="relative h-[435px] overflow-hidden">
+            <BlindArt className="absolute inset-0 w-full h-full" />
+            <div className="absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-b from-transparent via-[#fff3e7]/72 to-[#fffaf4]" />
 
-          {/* Profile Header */}
-          <div className="flex justify-between items-start mb-4 z-10">
-            <div>
-              <div className="flex items-center gap-1.5 mb-1 text-[10px] text-stone-500 font-extrabold uppercase tracking-widest font-display">
-                <MapPin className="w-3.5 h-3.5 text-rose-500" />
+            <span className="absolute top-5 left-5 rounded-full bg-[#fffaf4] px-4 py-2 text-[14px] font-extrabold shadow-sm">Demo profile – fictional</span>
+            <span className="absolute top-5 right-5 rounded-full bg-gradient-to-r from-[#e83f5e] to-[#ff6e21] text-white px-4 py-2 text-[17px] font-black">{compatibility.score}% match</span>
+
+            <div className="absolute left-6 right-6 bottom-5">
+              <h2 className="text-[38px] leading-none font-black tracking-[-0.045em]">{activeProfile.name}, {activeProfile.age}</h2>
+              <div className="flex items-center gap-2 text-[18px] text-[#766761] mt-3">
                 <span>{activeProfile.location}</span>
-                <span className="text-stone-300">•</span>
-                <span>{distanceLabel}</span>
+                <MapPin className="w-5 h-5" />
+                <span>{distance}</span>
               </div>
-              <h2 className="text-2xl font-black font-display tracking-tight text-stone-900">{activeProfile.name}, <span className="text-stone-500 font-medium">{activeProfile.age}</span></h2>
-              <div className="flex items-center gap-2 mt-1.5">
-                <span className={`text-[11px] font-black tracking-wide uppercase px-2.5 py-1 rounded-lg ${archetypeInfo.textColor.replace('-400', '-600')} bg-white/95 border border-stone-200/60 shadow-xs inline-block`}>
-                  {archetypeInfo.name}
-                </span>
-                {isDemoProfile && (
-                  <span className="text-[9px] font-black tracking-widest uppercase px-2 py-1 rounded-lg bg-stone-900 text-white/90">
-                    Demo
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Compatibility Badge */}
-            <div className="bg-white/90 border border-stone-200/80 rounded-2xl p-2.5 flex flex-col items-center justify-center min-w-[70px] shadow-sm">
-              <span className="text-[10px] text-stone-400 uppercase tracking-wider font-extrabold font-display">Spark</span>
-              <span className={`text-lg font-black font-mono ${compatibility.score >= 90 ? "text-rose-600" : "text-amber-700"}`}>
-                {compatibility.score}%
-              </span>
             </div>
           </div>
 
-          {/* Core Content Box */}
-          <div className="flex-1 flex flex-col gap-4 overflow-y-auto max-h-[340px] pr-1 scrollbar-thin z-10">
-            {/* Bio section */}
-            <div className="bg-[#FAF9F6]/90 border border-stone-200/60 rounded-2xl p-4 shadow-xs">
-              <span className="text-[10px] uppercase font-black text-stone-400 mb-1 block tracking-widest font-display">Biography</span>
-              <p className="text-xs text-stone-700 leading-relaxed font-medium">
-                {activeProfile.bio}
-              </p>
-            </div>
-
-            {/* Why We Align (Accordian) */}
-            <div className="bg-[#FAF9F6]/90 border border-stone-200/60 rounded-2xl overflow-hidden shadow-xs">
-              <button
-                onClick={() => setShowReasons(!showReasons)}
-                className="w-full flex justify-between items-center p-4 text-[10px] font-black uppercase tracking-widest text-stone-500 hover:text-stone-900 transition-all font-display"
-              >
-                <span className="flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-rose-500" />
-                  Why we align
-                </span>
-                {showReasons ? <ChevronUp className="w-4 h-4 text-stone-400" /> : <ChevronDown className="w-4 h-4 text-stone-400" />}
-              </button>
-              {showReasons && (
-                <div className="px-4 pb-4 flex flex-col gap-2.5 border-t border-stone-200/50 pt-3">
-                  {compatibility.reasons.map((r, idx) => (
-                    <div key={idx} className="flex gap-2 items-start text-xs text-stone-600 leading-relaxed font-medium">
-                      <span className="text-rose-500 mt-1 font-bold">•</span>
-                      <span>{r}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Spark Prompts */}
-            {Object.entries(activeProfile.sparkPrompts || {}).map(([question, answer], i) => (
-              <div key={i} className="bg-[#FAF9F6]/90 border border-stone-200/60 rounded-2xl p-4 flex flex-col gap-1.5 shadow-xs">
-                <span className="text-[10px] uppercase font-black text-stone-400 italic font-display">
-                  "{question}"
-                </span>
-                <p className="text-xs text-rose-600 font-semibold italic pl-2 border-l-2 border-rose-400/50">
-                  {answer}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* Swipe Buttons */}
-          <div className="grid grid-cols-2 gap-4 mt-6 z-10">
-            <button
-              onClick={() => handleSwipe(false)}
-              disabled={isSwiping}
-              className="py-4 bg-white hover:bg-stone-50 disabled:opacity-50 text-stone-600 hover:text-stone-900 border border-stone-200 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all duration-200 cursor-pointer shadow-sm"
-            >
-              <X className="w-5 h-5 text-stone-400" />
-              Pass
-            </button>
-            <button
-              onClick={() => handleSwipe(true)}
-              disabled={isSwiping}
-              className="py-4 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 disabled:opacity-50 text-white rounded-2xl font-black flex items-center justify-center gap-2 transition-all duration-300 cursor-pointer shadow-md shadow-rose-500/10 hover:shadow-lg"
-            >
-              <Heart className="w-5 h-5 fill-white" />
-              Spark
+          <div className="px-6 pt-3 pb-5 bg-[#fffaf4]">
+            <p className="text-[18px] leading-[1.45] min-h-[52px] line-clamp-2">{activeProfile.bio}</p>
+            <button type="button" className="mt-4 text-[#e84962] text-[17px] font-extrabold flex items-center gap-2">
+              <Info className="w-5 h-5" /> Details and compatibility
             </button>
           </div>
+
+          <div className="absolute top-24 left-5 rotate-[-10deg] border-[4px] border-[#2b1b18] bg-white/90 px-4 py-2 rounded-xl font-black text-xl" style={{ opacity: dragX < 0 ? Math.min(Math.abs(dragX) / 100, 1) : 0 }}>PASS</div>
+          <div className="absolute top-24 right-5 rotate-[10deg] border-[4px] border-[#e84962] text-[#e84962] bg-white/90 px-4 py-2 rounded-xl font-black text-xl" style={{ opacity: dragX > 0 ? Math.min(Math.abs(dragX) / 100, 1) : 0 }}>SPARK</div>
         </motion.div>
       </AnimatePresence>
 
-      {/* Match Ignited Modal */}
+      <div className="flex items-center justify-center gap-10 mt-6">
+        <button
+          type="button"
+          disabled={isSwiping}
+          onClick={() => void handleSwipe(false)}
+          className="w-[74px] h-[74px] rounded-full border-2 border-[#2b1b18] bg-white flex items-center justify-center shadow-[0_8px_16px_rgba(47,29,24,.08)]"
+        >
+          <X className="w-9 h-9 text-[#75655f]" />
+        </button>
+        <button
+          type="button"
+          disabled={isSwiping}
+          onClick={() => void handleSwipe(true)}
+          className="w-[86px] h-[86px] rounded-full bg-gradient-to-br from-[#ed3e5f] to-[#ff6e20] text-white flex items-center justify-center shadow-[0_14px_30px_rgba(235,64,91,.25)]"
+        >
+          <Sparkles className="w-11 h-11" />
+        </button>
+      </div>
+
       <AnimatePresence>
         {showMatchModal && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] bg-[#2b1b18]/35 backdrop-blur-sm p-5 flex items-center justify-center"
           >
-            <motion.div
-              initial={{ scale: 0.9, y: 15 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 15 }}
-              className="w-full max-w-sm bg-white border border-stone-200/80 rounded-3xl p-6 text-center shadow-2xl relative overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-            >
-              {/* Confetti sparks */}
-              <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-rose-500 to-amber-500" />
-              <div className="w-16 h-16 bg-gradient-to-tr from-rose-500 to-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-md shadow-rose-500/15">
-                <Sparkles className="w-8 h-8 text-white" />
-              </div>
-
-              <h2 className="text-2xl font-black font-display tracking-tight text-stone-900 bg-gradient-to-r from-rose-600 to-amber-600 bg-clip-text text-transparent mb-1">
-                Spark Ignited!
-              </h2>
-              <p className="text-[#615E69] text-xs mb-6 font-medium">
-                You and <span className="text-stone-900 font-bold">{showMatchModal.partner.name}</span>, <span className="text-stone-850 font-bold">{showMatchModal.partner.age}</span>, matched on shared personality vibrations!
-              </p>
-
-              <div className="bg-stone-50 border border-stone-200/85 rounded-2xl p-4 mb-6">
-                <span className="text-[10px] uppercase font-black text-stone-400 tracking-wider block mb-1 font-display">Their Spark Vibe</span>
-                <p className={`text-sm font-black ${ARCHETYPES[showMatchModal.partner.archetype].textColor.replace('-400', '-600')}`}>
-                  {ARCHETYPES[showMatchModal.partner.archetype].name}
-                </p>
-                <p className="text-xs text-stone-500 italic mt-1 font-medium">
-                  "{ARCHETYPES[showMatchModal.partner.archetype].tagline}"
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => {
-                    const m = showMatchModal;
-                    setShowMatchModal(null);
-                    onMatchCreated(m.match, m.partner);
-                  }}
-                  className="w-full py-3.5 bg-stone-900 hover:bg-stone-850 text-white rounded-xl font-bold text-sm transition-all shadow-md cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <span>Open Private Chat</span>
-                </button>
-                <button
-                  onClick={() => setShowMatchModal(null)}
-                  className="w-full py-2 bg-transparent hover:bg-stone-50 text-stone-500 hover:text-stone-800 rounded-xl font-bold text-xs transition-all cursor-pointer"
-                >
-                  Keep Swiping
-                </button>
-              </div>
+            <motion.div initial={{ scale: 0.92, y: 16 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-sm rounded-[34px] bg-[#fffaf4] border-2 border-[#2b1b18] p-7 text-center shadow-2xl">
+              <div className="w-20 h-20 mx-auto rounded-[28px] bg-gradient-to-br from-[#ed3e5f] to-[#ff6e20] flex items-center justify-center text-white mb-5"><Sparkles className="w-10 h-10" /></div>
+              <h2 className="text-[32px] font-black">It’s a Spark!</h2>
+              <p className="mt-2 text-[18px] text-[#75655f]">You matched with <strong>{showMatchModal.partner.name}</strong>.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  const data = showMatchModal;
+                  setShowMatchModal(null);
+                  onMatchCreated(data.match, data.partner);
+                }}
+                className="w-full h-16 rounded-[24px] mt-6 bg-gradient-to-r from-[#e84962] to-[#f07a38] text-white text-[20px] font-black"
+              >
+                Open match
+              </button>
+              <button type="button" onClick={() => setShowMatchModal(null)} className="mt-4 text-[#75655f] font-bold">Keep discovering</button>
             </motion.div>
           </motion.div>
         )}
