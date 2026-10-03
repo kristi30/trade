@@ -310,8 +310,17 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
         )}
 
         {activeTab === "settings" && (
-          <div className="px-5 pt-10 pb-8">
-            <h1 className="text-[34px] font-black tracking-[-0.045em] mb-6">Settings</h1>
+          <div className="px-5 pt-6 pb-[170px] min-h-[100dvh] overflow-y-auto">
+            <div className="flex items-center justify-between gap-3 mb-6">
+              <h1 className="text-[34px] font-black tracking-[-0.045em]">Settings</h1>
+              <button
+                onClick={onLogout}
+                className="shrink-0 rounded-[20px] border-2 border-[#2b1b18] bg-white px-4 py-2.5 font-extrabold flex items-center gap-2 text-[15px]"
+              >
+                <LogOut className="w-4 h-4" />
+                Log out
+              </button>
+            </div>
 
             <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5">
               <h2 className="text-[23px] font-black mb-6">Discovery preferences</h2>
