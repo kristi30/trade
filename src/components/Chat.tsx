@@ -98,6 +98,7 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
         });
       });
       setMessages(fetched);
+      localStorage.setItem(`blindspark_messages_${match.id}`, JSON.stringify(fetched));
     }, (error) => {
       console.warn("Firestore messages onSnapshot failed, falling back to local messages:", error);
       setUseLocalFallback(true);
@@ -129,6 +130,16 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
       [`readBy.${currentUser.id}`]: serverTimestamp(),
     }).catch(() => undefined);
   }, [messages.length, activeLocalMode, match.id, currentUser.id]);
+
+  useEffect(() => {
+    return () => {
+      if (!activeLocalMode) {
+        void updateDoc(doc(db, "matches", match.id), {
+          [`typing.${currentUser.id}`]: false,
+        }).catch(() => undefined);
+      }
+    };
+  }, [activeLocalMode, match.id, currentUser.id]);
 
   // Scroll message container to bottom whenever messages load or update (without moving document window)
   useEffect(() => {
