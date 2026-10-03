@@ -21,6 +21,10 @@ service cloud.firestore {
       match /devices/{deviceId} {
         allow read, create, update, delete: if owns(profileId);
       }
+
+      match /blocks/{blockedUserId} {
+        allow read, create, update, delete: if owns(profileId);
+      }
     }
 
     match /likes/{likeId} {
