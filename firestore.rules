@@ -17,6 +17,10 @@ service cloud.firestore {
     match /profiles/{profileId} {
       allow read: if signedIn();
       allow create, update, delete: if owns(profileId);
+
+      match /devices/{deviceId} {
+        allow read, create, update, delete: if owns(profileId);
+      }
     }
 
     match /likes/{likeId} {
