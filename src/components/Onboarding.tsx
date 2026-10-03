@@ -548,11 +548,6 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
                 {ARCHETYPES[calculatedArchetype].description}
               </p>
 
-              <div className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 mb-3 text-left">
-                <p className="text-[10px] uppercase tracking-widest text-stone-400 font-black mb-1">Quiz result</p>
-                <p className="text-xs text-stone-600 font-medium">This personality type is calculated from the answers you just chose. It will appear on your profile and be used for compatibility scores.</p>
-              </div>
-
               <button
                 onClick={() => setStep("prompts")}
                 className="w-full py-4 bg-stone-950 hover:bg-stone-850 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
