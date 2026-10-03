@@ -3,13 +3,31 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { generateChatReply } from "./src/serverChat";
+import { moderateImageDataUrl } from "./src/serverModeration";
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-app.use(express.json({ limit: "3mb" }));
+app.use(express.json({ limit: "8mb" }));
+
+app.post("/api/moderate-image", async (req, res) => {
+  try {
+    const imageDataUrl = req.body?.imageDataUrl;
+    if (!imageDataUrl || typeof imageDataUrl !== "string") {
+      return res.status(400).json({ allowed: false, reason: "imageDataUrl is required" });
+    }
+    if (imageDataUrl.length > 8_000_000) {
+      return res.status(413).json({ allowed: false, reason: "Image is too large" });
+    }
+    const result = await moderateImageDataUrl(imageDataUrl);
+    return res.status(result.allowed ? 200 : 422).json(result);
+  } catch (error) {
+    console.error("Error in /api/moderate-image:", error);
+    return res.status(500).json({ allowed: false, reason: "Moderation failed" });
+  }
+});
 
 app.post("/api/chat-reply", async (req, res) => {
   try {
