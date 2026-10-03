@@ -1,11 +1,25 @@
-import { useState, useEffect, FormEvent } from "react";
-import { collection, doc, setDoc, getDocs, onSnapshot, query, where, getDoc, deleteDoc } from "firebase/firestore";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { collection, deleteDoc, doc, getDoc, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import {
+  BarChart3,
+  Compass,
+  Heart,
+  LogOut,
+  MapPin,
+  MessageCircle,
+  Pencil,
+  RefreshCw,
+  Settings,
+  Smartphone,
+  UserRound,
+  UsersRound,
+} from "lucide-react";
 import { db } from "../lib/firebase";
-import { SEED_PROFILES, ARCHETYPES } from "../data";
-import { Profile, Match } from "../types";
-import { Compass, MessageSquare, Sparkles, User, RefreshCw, LogOut, Check, Heart, MapPin, ChevronRight, Activity, Shield, Info } from "lucide-react";
-import Discovery from "./Discovery";
+import { ARCHETYPES, QUIZ_QUESTIONS, SEED_PROFILES } from "../data";
+import { Match, Message, Profile } from "../types";
+import BlindArt from "./BlindArt";
 import Chat from "./Chat";
+import Discovery from "./Discovery";
 import ProfileDetailsModal from "./ProfileDetailsModal";
 
 interface DashboardProps {
@@ -15,639 +29,363 @@ interface DashboardProps {
   onResetProfile?: () => void;
 }
 
+type TabId = "discover" | "matches" | "profile" | "stats" | "settings";
+type MatchPair = { match: Match; partner: Profile };
+
+const DIMENSIONS = [
+  ["q1", "Energy"],
+  ["q2", "Social battery"],
+  ["q3", "Planning"],
+  ["q4", "Humor"],
+  ["q5", "Conversation"],
+  ["q6", "Ambition"],
+] as const;
+
+function profileForPartner(id: string): Profile | null {
+  const seed = SEED_PROFILES.find((item) => `seed_${item.name.toLowerCase()}` === id);
+  return seed ? ({ ...seed, id } as Profile) : null;
+}
+
 export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onResetProfile }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<"discover" | "matches" | "stats" | "profile">("discover");
-  const [matches, setMatches] = useState<{ match: Match; partner: Profile }[]>([]);
-  const [loadingMatches, setLoadingMatches] = useState(true);
-  const [activeChat, setActiveChat] = useState<{ match: Match; partner: Profile } | null>(null);
-
-  // Profile details modal/sheet state
+  const [activeTab, setActiveTab] = useState<TabId>("discover");
+  const [matches, setMatches] = useState<MatchPair[]>([]);
+  const [activeChat, setActiveChat] = useState<MatchPair | null>(null);
   const [selectedPartner, setSelectedPartner] = useState<{ partner: Profile; matchScore?: number; matchId: string } | null>(null);
-
-  // Blocked user profile IDs state
-  const [blockedIds, setBlockedIds] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(`blindspark_blocked_${currentUser.id}`) || "[]");
-    } catch (_) {
-      return [];
-    }
-  });
-
-  // Profile Editor state
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(currentUser.name);
+  const [editAge, setEditAge] = useState(String(currentUser.age));
   const [editLocation, setEditLocation] = useState(currentUser.location);
-  const [editLookingFor, setEditLookingFor] = useState(currentUser.lookingFor);
-  const [editAge, setEditAge] = useState<string>(String(currentUser.age || 24));
-  const [editBio, setEditBio] = useState(currentUser.bio);
-  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-  const [showUpdateSuccess, setShowUpdateSuccess] = useState(false);
+  const [editBio, setEditBio] = useState(currentUser.bio || "");
+  const [maxDistance, setMaxDistance] = useState(() => Number(localStorage.getItem(`blindspark_max_distance_${currentUser.id}`) || "60"));
+  const [minAge, setMinAge] = useState(() => Number(localStorage.getItem(`blindspark_min_age_${currentUser.id}`) || "18"));
+  const [maxAge, setMaxAge] = useState(() => Number(localStorage.getItem(`blindspark_max_age_${currentUser.id}`) || "60"));
+  const [blockedIds, setBlockedIds] = useState<string[]>(() => JSON.parse(localStorage.getItem(`blindspark_blocked_${currentUser.id}`) || "[]"));
+  const [version, setVersion] = useState(0);
 
-  // Block a matched profile and permanently hide/unmatch
-  const handleBlockUser = async (partnerId: string, matchId: string) => {
-    const updated = [...blockedIds, partnerId];
-    setBlockedIds(updated);
-    localStorage.setItem(`blindspark_blocked_${currentUser.id}`, JSON.stringify(updated));
-    setActiveChat(null);
-    setSelectedPartner(null);
+  const isLocalMode = currentUser.id.startsWith("local_");
+  const archetype = ARCHETYPES[currentUser.archetype];
 
-    // Run unmatch sequence silently without user notifications
-    await handleUnmatch(matchId, partnerId, false);
+  const reloadLocalMatches = () => {
+    const saved: Match[] = JSON.parse(localStorage.getItem(`blindspark_matches_${currentUser.id}`) || "[]");
+    const pairs = saved
+      .map((match) => {
+        const partnerId = match.users.find((id) => id !== currentUser.id);
+        if (!partnerId || blockedIds.includes(partnerId)) return null;
+        const partner = profileForPartner(partnerId);
+        return partner ? { match, partner } : null;
+      })
+      .filter((item): item is MatchPair => Boolean(item));
+    setMatches(pairs.sort((a, b) => b.match.score - a.match.score));
   };
 
-  // Unmatch/Cancel match sequence
-  const handleUnmatch = async (matchId: string, partnerId: string, alertUser = true) => {
-    const isLocalMode = !currentUser.id || currentUser.id.startsWith("local_") || matchId.startsWith("local_");
-
-    // Clean local storage match list
-    const localMatchesStr = localStorage.getItem(`blindspark_matches_${currentUser.id}`) || "[]";
-    try {
-      const localMatchesList: Match[] = JSON.parse(localMatchesStr);
-      const filtered = localMatchesList.filter(m => m.id !== matchId);
-      localStorage.setItem(`blindspark_matches_${currentUser.id}`, JSON.stringify(filtered));
-    } catch (e) {
-      console.warn("Failed to update local matches list:", e);
-    }
-
-    // Purge local storage messages
-    localStorage.removeItem(`blindspark_messages_${matchId}`);
-
-    // Update matches list in state instantly for seamless responsiveness
-    setMatches((prev) => prev.filter((p) => p.match.id !== matchId));
-    setActiveChat(null);
-    setSelectedPartner(null);
-
-    // Delete matching doc from Firestore in background if online
-    if (!isLocalMode) {
-      deleteDoc(doc(db, "matches", matchId)).catch((e) => {
-        console.warn("Could not delete match from Firestore:", e);
-      });
-    }
-  };
-
-  // Discovery keeps its demo profiles client-side; do not write simulated profiles into production Firestore.
-
-  // 2. Listen to user's real-time matches
   useEffect(() => {
-    const isLocalMode = !currentUser.id || currentUser.id.startsWith("local_");
-
-    // Immediate matches cache key to load matches instantly
-    const cacheKey = `blindspark_cached_matches_list_${currentUser.id}`;
-    const cachedData = localStorage.getItem(cacheKey);
-
-    if (cachedData) {
-      try {
-        const parsed = JSON.parse(cachedData);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Sync immediately with cached items so there is zero spin wait
-          setMatches(parsed);
-          setLoadingMatches(false);
-        }
-      } catch (e) {
-        console.warn("Failed to parse cached matches list:", e);
-      }
-    } else {
-      setLoadingMatches(true);
-    }
-
     if (isLocalMode) {
-      const localMatchesStr = localStorage.getItem(`blindspark_matches_${currentUser.id}`);
-      let localMatchesList: Match[] = [];
-      if (localMatchesStr) {
-        localMatchesList = JSON.parse(localMatchesStr);
-      } else {
-        // Create default simulated matches with high score for high fidelity demo
-        const seedPartners = SEED_PROFILES.slice(0, 3);
-        localMatchesList = seedPartners.map((partner, index) => ({
-          id: `local_match_${index}_${currentUser.id}`,
-          users: [currentUser.id, `seed_${partner.name.toLowerCase()}`],
-          createdAt: { seconds: Date.now() / 1000, nanoseconds: 0 } as any,
-          score: 88 - index * 6,
-          chatStarted: true,
-        }));
-        localStorage.setItem(`blindspark_matches_${currentUser.id}`, JSON.stringify(localMatchesList));
-      }
-
-      // Read blocked IDs from local storage
-      const blockedList: string[] = JSON.parse(localStorage.getItem(`blindspark_blocked_${currentUser.id}`) || "[]");
-
-      const matchedPairs = localMatchesList
-        .map((match) => {
-          const partnerId = match.users.find((id) => id !== currentUser.id);
-          const partnerSeed = SEED_PROFILES.find((p) => `seed_${p.name.toLowerCase()}` === partnerId) || SEED_PROFILES[0];
-          return {
-            match,
-            partner: {
-              ...partnerSeed,
-              id: partnerId || `seed_${partnerSeed.name.toLowerCase()}`,
-            } as Profile,
-          };
-        })
-        .filter((p) => !blockedList.includes(p.partner.id));
-
-      setMatches(matchedPairs);
-      localStorage.setItem(cacheKey, JSON.stringify(matchedPairs));
-      setLoadingMatches(false);
+      reloadLocalMatches();
       return;
     }
 
-    // Cloud Mode Match Listening with Parallel Retrieval & Local Caching
     const q = query(collection(db, "matches"), where("users", "array-contains", currentUser.id));
-
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      try {
-        // Read blocked IDs dynamically
-        const blockedList: string[] = JSON.parse(localStorage.getItem(`blindspark_blocked_${currentUser.id}`) || "[]");
-
-        // Load profiles cache from localStorage
-        const profilesCacheKey = `blindspark_profiles_cache_${currentUser.id}`;
-        let profilesCache: Record<string, Profile> = {};
+    return onSnapshot(q, async (snapshot) => {
+      const pairs = await Promise.all(snapshot.docs.map(async (item) => {
+        const match = item.data() as Match;
+        const partnerId = match.users.find((id) => id !== currentUser.id);
+        if (!partnerId || blockedIds.includes(partnerId)) return null;
         try {
-          profilesCache = JSON.parse(localStorage.getItem(profilesCacheKey) || "{}");
-        } catch (_) {}
-
-        // Fetch all partner profiles in parallel
-        const matchPromises = snapshot.docs.map(async (docSnap) => {
-          const matchData = docSnap.data() as Match;
-          const partnerId = matchData.users.find((id) => id !== currentUser.id);
-
-          if (!partnerId || blockedList.includes(partnerId)) return null;
-
-          // Serve from memory cache instantly if hit
-          if (profilesCache[partnerId]) {
-            return {
-              match: matchData,
-              partner: profilesCache[partnerId],
-            };
-          }
-
-          // Otherwise, fetch from Firestore
-          try {
-            const partnerSnap = await getDoc(doc(db, "profiles", partnerId));
-            if (partnerSnap.exists()) {
-              const pData = partnerSnap.data() as Profile;
-              profilesCache[partnerId] = pData;
-              return { match: matchData, partner: pData };
-            }
-          } catch (e) {
-            console.warn("Failed to fetch partner profile:", partnerId, e);
-          }
-
-          // Safe fallback to seeds if not found or network error
-          const seedName = partnerId.replace("seed_", "");
-          const partnerSeed = SEED_PROFILES.find((p) => p.name.toLowerCase() === seedName);
-          if (partnerSeed) {
-            const fallbackProfile = { ...partnerSeed, id: partnerId } as Profile;
-            profilesCache[partnerId] = fallbackProfile;
-            return { match: matchData, partner: fallbackProfile };
-          }
-
-          return null;
-        });
-
-        const results = await Promise.all(matchPromises);
-        const validPairs = results.filter((r): r is { match: Match; partner: Profile } => r !== null);
-
-        // Save profiles cache
-        localStorage.setItem(profilesCacheKey, JSON.stringify(profilesCache));
-
-        // Sort by chemistry score
-        const sorted = validPairs.sort((a, b) => b.match.score - a.match.score);
-        
-        setMatches(sorted);
-        localStorage.setItem(cacheKey, JSON.stringify(sorted));
-        setLoadingMatches(false);
-      } catch (err) {
-        console.error("Error updating matches on snapshot:", err);
-        setLoadingMatches(false);
-      }
-    }, (error) => {
-      console.warn("Firestore matches onSnapshot failed, using cache fallback:", error);
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        setMatches(JSON.parse(cached));
-      }
-      setLoadingMatches(false);
+          const partnerDoc = await getDoc(doc(db, "profiles", partnerId));
+          if (partnerDoc.exists()) return { match, partner: partnerDoc.data() as Profile };
+        } catch {}
+        const fallback = profileForPartner(partnerId);
+        return fallback ? { match, partner: fallback } : null;
+      }));
+      setMatches(pairs.filter((item): item is MatchPair => Boolean(item)).sort((a, b) => b.match.score - a.match.score));
     });
+  }, [currentUser.id, blockedIds.join("|")]);
 
-    return () => unsubscribe();
-  }, [currentUser.id]);
+  useEffect(() => {
+    if (activeTab === "matches" || activeTab === "stats") reloadLocalMatches();
+  }, [activeTab, version]);
 
-  // Handle Match creation event from swipe component
-  const handleMatchCreatedOnSwipe = (match: Match, partnerProfile: Profile) => {
-    // Automatically prepare active chat on matches tab
-    setActiveChat({ match, partner: partnerProfile });
+  const handleMatchCreated = (match: Match, partner: Profile) => {
+    setMatches((prev) => prev.some((item) => item.match.id === match.id) ? prev : [{ match, partner }, ...prev]);
     setActiveTab("matches");
+    setVersion((n) => n + 1);
   };
 
-  // Save profile edits
-  const handleUpdateProfile = async (e: FormEvent) => {
-    e.preventDefault();
-    setIsUpdatingProfile(true);
+  const handleUnmatch = async (matchId: string) => {
+    const local: Match[] = JSON.parse(localStorage.getItem(`blindspark_matches_${currentUser.id}`) || "[]");
+    localStorage.setItem(`blindspark_matches_${currentUser.id}`, JSON.stringify(local.filter((m) => m.id !== matchId)));
+    localStorage.removeItem(`blindspark_messages_${matchId}`);
+    setMatches((prev) => prev.filter((item) => item.match.id !== matchId));
+    setActiveChat(null);
+    setSelectedPartner(null);
+    if (!isLocalMode) await deleteDoc(doc(db, "matches", matchId)).catch(() => undefined);
+  };
 
+  const handleBlock = async (partnerId: string, matchId: string) => {
+    const next = Array.from(new Set([...blockedIds, partnerId]));
+    setBlockedIds(next);
+    localStorage.setItem(`blindspark_blocked_${currentUser.id}`, JSON.stringify(next));
+    await handleUnmatch(matchId);
+  };
+
+  const saveProfile = async (event: FormEvent) => {
+    event.preventDefault();
     const updated: Profile = {
       ...currentUser,
-      location: editLocation,
-      lookingFor: editLookingFor,
-      age: parseInt(editAge, 10) || currentUser.age || 24,
-      bio: editBio,
+      name: editName.trim() || currentUser.name,
+      age: Math.max(18, Number(editAge) || currentUser.age),
+      location: editLocation.trim() || currentUser.location,
+      bio: editBio.trim(),
     };
-
-    // Always update localStorage first as a local cache/fallback
     localStorage.setItem(`blindspark_profile_${currentUser.id}`, JSON.stringify(updated));
-
-    try {
-      const localMode = !currentUser.id || currentUser.id.startsWith("local_");
-      if (!localMode) {
-        await Promise.race([
-          setDoc(doc(db, "profiles", currentUser.id), updated),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout updating profile")), 1500)),
-        ]);
-      }
-      onProfileUpdate(updated);
-      setShowUpdateSuccess(true);
-      setTimeout(() => setShowUpdateSuccess(false), 2500);
-    } catch (err) {
-      console.error("Error updating profile in cloud (falling back to local memory):", err);
-      onProfileUpdate(updated);
-      setShowUpdateSuccess(true);
-      setTimeout(() => setShowUpdateSuccess(false), 2500);
-    } finally {
-      setIsUpdatingProfile(false);
-    }
+    if (!isLocalMode) await setDoc(doc(db, "profiles", currentUser.id), updated).catch(() => undefined);
+    onProfileUpdate(updated);
+    setEditing(false);
   };
 
-  const myArchetype = ARCHETYPES[currentUser.archetype];
-  const isLocalMode = !currentUser.id || currentUser.id.startsWith("local_");
+  const stats = useMemo(() => {
+    const sparks = Number(localStorage.getItem(`blindspark_sparks_sent_${currentUser.id}`) || "0");
+    const skipped: string[] = JSON.parse(localStorage.getItem(`blindspark_skipped_${currentUser.id}`) || "[]");
+    let messages = 0;
+    for (const pair of matches) {
+      const saved: Message[] = JSON.parse(localStorage.getItem(`blindspark_messages_${pair.match.id}`) || "[]");
+      messages += saved.filter((message) => message.senderId === currentUser.id).length;
+    }
+    const average = matches.length ? Math.round(matches.reduce((sum, item) => sum + item.match.score, 0) / matches.length) : 0;
+    return { sparks, skipped: skipped.length, messages, average };
+  }, [matches, currentUser.id, version]);
+
+  const resetSkipped = () => {
+    localStorage.removeItem(`blindspark_skipped_${currentUser.id}`);
+    setVersion((n) => n + 1);
+  };
+
+  const personalityAnswers = DIMENSIONS.map(([id, label]) => {
+    const question = QUIZ_QUESTIONS.find((q) => q.id === id);
+    const selected = currentUser.quizAnswers?.[id];
+    const answer = selected !== undefined ? question?.options[Number(selected)]?.text : undefined;
+    return { label, answer: answer || "Not answered" };
+  });
+
+  if (activeChat) {
+    return (
+      <div className="app-safe-screen bg-[#fffaf4] min-h-[100dvh]">
+        <Chat
+          match={activeChat.match}
+          currentUser={currentUser}
+          partnerProfile={activeChat.partner}
+          onBack={() => setActiveChat(null)}
+          onViewProfile={() => setSelectedPartner({ partner: activeChat.partner, matchScore: activeChat.match.score, matchId: activeChat.match.id })}
+        />
+        {selectedPartner && (
+          <ProfileDetailsModal
+            partner={selectedPartner.partner}
+            matchScore={selectedPartner.matchScore}
+            onClose={() => setSelectedPartner(null)}
+            onUnmatch={() => void handleUnmatch(selectedPartner.matchId)}
+            onBlock={() => void handleBlock(selectedPartner.partner.id, selectedPartner.matchId)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  const skippedCount = JSON.parse(localStorage.getItem(`blindspark_skipped_${currentUser.id}`) || "[]").length;
+  const overlapValues = [71, 43, 69, 69, 67, 64];
 
   return (
-    <div className="min-h-screen bg-[#FCFAF7] text-stone-900 flex flex-col pb-20 md:pb-6 font-sans">
-      {/* Top Header */}
-      <header className="px-6 py-5 border-b border-stone-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center max-w-lg w-full mx-auto">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-gradient-to-tr from-rose-500 to-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-rose-500/10">
-            <Sparkles className="w-4 h-4 text-white" />
-          </div>
-          <span className="text-lg font-black font-display tracking-tight bg-gradient-to-r from-rose-600 to-amber-600 bg-clip-text text-transparent">
-            blindSpark
-          </span>
-        </div>
+    <div className="app-safe-screen min-h-[100dvh] bg-[#fffaf4] text-[#2b1b18] font-sans pb-[108px]">
+      <main className="max-w-md mx-auto min-h-[calc(100dvh-108px)]">
+        {activeTab === "discover" && <Discovery currentUser={currentUser} onMatchCreated={handleMatchCreated} />}
 
-        {/* Small Logged In indicator */}
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end">
-            <span className="text-[10px] text-stone-900 font-bold">{currentUser.name}</span>
-            <span className={`text-[8px] font-black uppercase ${myArchetype.textColor.replace('-400', '-600')}`}>
-              {myArchetype.name}
-            </span>
-          </div>
-        </div>
-      </header>
+        {activeTab === "matches" && (
+          <div className="px-5 pt-10">
+            <h1 className="text-[34px] font-black tracking-[-0.045em]">Matches</h1>
+            <p className="text-[19px] text-[#7b6c66] mt-1">{matches.length} {matches.length === 1 ? "spark" : "sparks"}</p>
 
-      {isLocalMode && (
-        <div className="px-6 mt-4 max-w-lg w-full mx-auto">
-          <div className="bg-amber-50/70 border border-amber-200/60 rounded-2xl p-4 flex items-start gap-3 shadow-xs text-stone-800">
-            <span className="text-sm shrink-0 mt-0.5">⚠️</span>
-            <div className="flex-1 text-[11px] leading-relaxed font-medium">
-              <strong className="font-extrabold text-amber-850">iPhone Test Mode:</strong> your profile, matches and chats are stored only on this device so you can test the complete app without cloud setup.
-              <span className="block mt-1 text-stone-500">
-                Demo profiles are labeled clearly. Native sign-in and the production backend can be connected before release.
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Container */}
-      <main className="flex-1 flex flex-col items-center justify-center p-4">
-        {activeChat ? (
-          <Chat
-            match={activeChat.match}
-            currentUser={currentUser}
-            partnerProfile={activeChat.partner}
-            onBack={() => setActiveChat(null)}
-            onViewProfile={() => setSelectedPartner({ partner: activeChat.partner, matchScore: activeChat.match.score, matchId: activeChat.match.id })}
-          />
-        ) : (
-          <div className="w-full max-w-md flex-1 flex flex-col">
-            {/* Discover Tab */}
-            {activeTab === "discover" && (
-              <Discovery currentUser={currentUser} onMatchCreated={handleMatchCreatedOnSwipe} />
-            )}
-
-            {/* Matches / Chat List Tab */}
-            {activeTab === "matches" && (
-              <div className="flex-1 flex flex-col bg-white border border-stone-200/75 rounded-3xl p-5 min-h-[480px] shadow-lg shadow-stone-100/40">
-                <h2 className="text-lg font-black font-display tracking-tight text-stone-900 mb-1">Dating Sparks</h2>
-                <p className="text-stone-500 text-xs mb-5 font-medium leading-relaxed">These compatible profiles matching your vibe are ready to converse.</p>
-
-                {loadingMatches ? (
-                  <div className="flex-1 flex flex-col justify-center items-center">
-                    <RefreshCw className="w-6 h-6 text-rose-500 animate-spin mb-2" />
-                    <span className="text-xs text-stone-400 font-semibold">Retrieving matches...</span>
-                  </div>
-                ) : matches.length === 0 ? (
-                  <div className="flex-1 flex flex-col justify-center items-center text-center gap-4 py-8">
-                    <div className="w-12 h-12 bg-stone-50 border border-stone-200/60 rounded-xl flex items-center justify-center shadow-xs">
-                      <MessageSquare className="w-6 h-6 text-stone-400" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-stone-850">No active matches</h4>
-                      <p className="text-xs text-stone-500 max-w-[200px] mx-auto mt-1 leading-relaxed font-medium">
-                        Swipe on profiles in the Discovery deck to unlock connections!
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2.5 overflow-y-auto max-h-[360px] pr-1">
-                    {matches.map(({ match, partner }) => {
-                      const arch = ARCHETYPES[partner.archetype];
-                      return (
-                        <div
-                          key={match.id}
-                          className="w-full text-left bg-stone-50 hover:bg-rose-50/10 border border-stone-200/60 hover:border-rose-200/80 p-3.5 rounded-2xl flex items-center justify-between gap-3 transition-all duration-200 group shadow-2xs"
-                        >
-                          {/* Left Clickable Area (Opens Chat) */}
-                          <div
-                            onClick={() => setActiveChat({ match, partner })}
-                            className="flex-1 cursor-pointer"
-                          >
-                            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                              <span className="text-sm font-bold text-stone-900 group-hover:text-rose-950 transition-colors">
-                                {partner.name}, <span className="text-stone-500 font-medium">{partner.age}</span>
-                              </span>
-                              <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded-md ${arch.textColor.replace('-400', '-600')} bg-white border border-stone-200 uppercase shadow-3xs`}>
-                                {arch.name}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1 text-[10px] text-stone-500 font-semibold">
-                              <MapPin className="w-3 h-3 text-rose-500/80" />
-                              <span>{partner.location}</span>
-                            </div>
-                          </div>
-
-                          {/* Right Controls Area */}
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {/* Open Profile Button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedPartner({ partner, matchScore: match.score, matchId: match.id });
-                              }}
-                              className="p-2 bg-white hover:bg-stone-100 border border-stone-200/80 text-stone-500 hover:text-stone-850 rounded-xl transition-all cursor-pointer shadow-3xs flex items-center justify-center"
-                              title="View Profile Details"
-                            >
-                              <Info className="w-3.5 h-3.5 text-stone-500 hover:text-stone-850" />
-                            </button>
-
-                            {/* Score & Chat CTA */}
-                            <button
-                              onClick={() => setActiveChat({ match, partner })}
-                              className="bg-white hover:bg-rose-50/50 border border-stone-200/80 hover:border-rose-300 rounded-xl px-2.5 py-1 text-[10px] font-black font-mono text-rose-600 transition-all shadow-3xs cursor-pointer flex items-center gap-1"
-                            >
-                              <span>{match.score}%</span>
-                              <ChevronRight className="w-3 h-3 text-stone-400 group-hover:text-stone-600 transition-transform group-hover:translate-x-0.5" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+            {matches.length === 0 ? (
+              <div className="min-h-[64vh] flex flex-col items-center justify-center text-center px-6">
+                <div className="w-[104px] h-[104px] rounded-[30px] bg-[#fde3e8] flex items-center justify-center">
+                  <UsersRound className="w-14 h-14 text-[#d94a61]" />
+                </div>
+                <h2 className="mt-7 text-[27px] font-black">No matches yet</h2>
+                <p className="mt-4 text-[18px] leading-[1.45] text-[#7b6c66]">Spark someone in discover. Demo Sparks match about 1 in 4 times.</p>
+                <button onClick={() => setActiveTab("discover")} className="mt-7 rounded-[24px] bg-gradient-to-r from-[#df4a60] to-[#ef7938] px-8 py-4 text-white text-[19px] font-black shadow-[0_12px_25px_rgba(230,75,91,.18)]">Start discovering</button>
               </div>
-            )}
-
-            {/* Stats Ecosystem Tab */}
-            {activeTab === "stats" && (
-              <div className="flex-1 flex flex-col bg-white border border-stone-200/75 rounded-3xl p-5 min-h-[480px] shadow-lg shadow-stone-100/40 text-stone-900">
-                <div className="flex items-center gap-2 mb-1">
-                  <Activity className="w-5 h-5 text-rose-500" />
-                  <h2 className="text-lg font-black font-display tracking-tight text-stone-900">Match Radar Analytics</h2>
-                </div>
-                <p className="text-stone-500 text-xs mb-5 font-medium">Your {myArchetype.name} archetype in the Los Angeles matching ecosystem.</p>
-
-                {/* Local Density Cards */}
-                <div className="grid grid-cols-2 gap-3 mb-5">
-                  <div className="bg-stone-50 border border-stone-200/80 rounded-2xl p-3 text-center shadow-xs">
-                    <span className="text-[9px] uppercase text-stone-400 font-extrabold block mb-1 font-display">Local Sparks</span>
-                    <span className="text-xl font-extrabold font-mono tracking-tight text-stone-900">42 Active</span>
-                    <span className="text-[8px] text-stone-500 block mt-0.5 font-medium">within 3 miles</span>
-                  </div>
-                  <div className="bg-stone-50 border border-stone-200/80 rounded-2xl p-3 text-center shadow-xs">
-                    <span className="text-[9px] uppercase text-stone-400 font-extrabold block mb-1 font-display">Avg. Compatibility</span>
-                    <span className="text-xl font-extrabold font-mono tracking-tight text-rose-600">89.4%</span>
-                    <span className="text-[8px] text-stone-500 block mt-0.5 font-medium">high-chemistry ratio</span>
-                  </div>
-                </div>
-
-                {/* Archetype Compatibilities Bar Chart */}
-                <div className="bg-stone-50 border border-stone-200/80 rounded-2xl p-4 flex-1 flex flex-col justify-between shadow-xs">
-                  <div>
-                    <span className="text-[10px] uppercase font-black text-stone-400 block mb-3 font-display">Compatibility Matrix By Archetype</span>
-                    
-                    <div className="flex flex-col gap-3">
-                      {[
-                        { name: "Dreamy Idealists", pct: 98, color: "bg-rose-500" },
-                        { name: "Deep Thinkers", pct: 92, color: "bg-indigo-500" },
-                        { name: "Cozy Homebodies", pct: 88, color: "bg-emerald-500" },
-                        { name: "Playful Witties", pct: 82, color: "bg-fuchsia-500" },
-                        { name: "Sparkly Adventurers", pct: 74, color: "bg-orange-500" }
-                      ].map((item, idx) => (
-                        <div key={idx} className="flex flex-col gap-1">
-                          <div className="flex justify-between text-[10px] font-bold">
-                            <span className="text-stone-500 font-medium">{item.name}</span>
-                            <span className="text-stone-850 font-mono font-bold">{item.pct}%</span>
-                          </div>
-                          <div className="w-full h-1.5 bg-stone-200/60 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full ${item.color} rounded-full transition-all duration-300`}
-                              style={{ width: `${item.pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <p className="text-[10px] text-stone-500 leading-relaxed italic border-t border-stone-200/60 pt-3 mt-4 font-medium">
-                    "Idealists match with extremely high emotional reciprocity (98%) and sync elegantly with Deep Thinkers (92%) due to intuitive alignment."
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Profile Settings Tab */}
-            {activeTab === "profile" && (
-              <div className="flex-1 flex flex-col bg-white border border-stone-200/75 rounded-3xl p-5 min-h-[480px] shadow-lg shadow-stone-100/40 text-stone-900">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h2 className="text-lg font-black font-display text-stone-900">Your Dating Profile</h2>
-                    <p className="text-stone-500 text-xs font-medium">Customize your spark and discover parameters.</p>
-                  </div>
+            ) : (
+              <div className="space-y-4 mt-6">
+                {matches.map(({ match, partner }) => (
                   <button
-                    onClick={onLogout}
-                    className="p-2 py-1.5 bg-stone-50 hover:bg-rose-50 border border-stone-200 hover:border-rose-300 rounded-xl text-stone-500 hover:text-rose-600 transition-all cursor-pointer shadow-xs flex items-center gap-1 text-[11px] font-bold"
-                    title="Sign Out"
+                    key={match.id}
+                    onClick={() => setActiveChat({ match, partner })}
+                    className="w-full min-h-[124px] rounded-[28px] border-2 border-[#2b1b18] bg-white px-4 py-4 flex items-center text-left"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
+                    <BlindArt className="w-[86px] h-[86px] rounded-[22px] shrink-0" />
+                    <div className="ml-4 min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <h3 className="text-[23px] font-black">{partner.name}, {partner.age}</h3>
+                        <span className="text-[#e84962] text-[17px] font-black">{match.score}%</span>
+                      </div>
+                      <p className="text-[19px] text-[#7b6c66] mt-2">Say hello (demo chat)</p>
+                    </div>
+                    <MessageCircle className="w-9 h-9 text-[#d94a61] shrink-0" />
                   </button>
-                </div>
-
-                {/* Personality Badge Display */}
-                <div className={`p-4 rounded-2xl bg-gradient-to-tr ${myArchetype.gradient} border border-stone-200/80 mb-5 text-center shadow-xs`}>
-                  <span className="text-[8px] uppercase font-black text-stone-400 tracking-wider font-display">Your Archetype</span>
-                  <h3 className={`text-lg font-black ${myArchetype.textColor.replace('-400', '-600')} mt-0.5`}>
-                    {myArchetype.name}
-                  </h3>
-                  <p className="text-[10px] italic text-stone-700 mt-1 max-w-xs mx-auto leading-relaxed font-medium">
-                    "{myArchetype.tagline}"
-                  </p>
-                  <div className="flex flex-wrap justify-center gap-1 mt-2.5">
-                    {myArchetype.traits.map((tr, i) => (
-                      <span key={i} className="text-[8px] font-extrabold px-2.5 py-1 bg-white rounded-full text-stone-600 border border-stone-200/60 shadow-xs">
-                        {tr}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Form Editor */}
-                <form onSubmit={handleUpdateProfile} className="flex-1 flex flex-col gap-3.5 justify-between">
-                  <div className="flex flex-col gap-3.5">
-                    {/* Location selector */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[9px] uppercase font-bold text-stone-400">Local Area</label>
-                      <select
-                        value={editLocation}
-                        onChange={(e) => setEditLocation(e.target.value)}
-                        className="w-full bg-stone-50 border border-stone-200 focus:border-rose-500 rounded-xl px-3 py-2.5 text-xs focus:outline-none transition-all text-stone-900 cursor-pointer font-medium"
-                      >
-                        {[
-                          "Silver Lake", "Echo Park", "Venice Beach", "Santa Monica",
-                          "West Hollywood", "Downtown LA", "Los Feliz", "Pasadena"
-                        ].map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Looking For selector */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[9px] uppercase font-bold text-stone-400">Looking To Meet</label>
-                      <select
-                        value={editLookingFor}
-                        onChange={(e) => setEditLookingFor(e.target.value)}
-                        className="w-full bg-stone-50 border border-stone-200 focus:border-rose-500 rounded-xl px-3 py-2.5 text-xs focus:outline-none transition-all text-stone-900 cursor-pointer font-medium"
-                      >
-                        <option value="female">Women</option>
-                        <option value="male">Men</option>
-                        <option value="everyone">Everyone</option>
-                      </select>
-                    </div>
-
-                    {/* Age editor */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[9px] uppercase font-bold text-stone-400">Your Age</label>
-                      <input
-                        type="number"
-                        value={editAge}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val === "" || (parseInt(val, 10) >= 0 && parseInt(val, 10) <= 120)) {
-                            setEditAge(val);
-                          }
-                        }}
-                        min={18}
-                        max={100}
-                        className="w-full bg-stone-50 border border-stone-200 focus:border-rose-500 rounded-xl px-3 py-2.5 text-xs focus:outline-none transition-all text-stone-900 font-medium"
-                      />
-                    </div>
-
-                    {/* Bio editor */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[9px] uppercase font-bold text-stone-400">Bio</label>
-                      <textarea
-                        value={editBio}
-                        onChange={(e) => setEditBio(e.target.value)}
-                        maxLength={250}
-                        rows={3}
-                        className="w-full bg-stone-50 border border-stone-200 focus:border-rose-400 rounded-xl p-3 text-xs focus:outline-none transition-all text-stone-900 resize-none leading-relaxed font-medium"
-                      />
-                      <span className="text-[9px] text-stone-400 text-right font-medium">{editBio.length}/250</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    {showUpdateSuccess && (
-                      <span className="text-emerald-600 text-[10px] font-bold text-center block mb-2">
-                        ✓ Profile updated successfully!
-                      </span>
-                    )}
-                    <button
-                      type="submit"
-                      disabled={isUpdatingProfile || editBio.length < 20 || !editAge || parseInt(editAge, 10) < 18}
-                      className="w-full py-3.5 bg-stone-900 hover:bg-stone-850 disabled:bg-stone-100 text-white disabled:text-stone-400 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md"
-                    >
-                      {isUpdatingProfile ? "Updating..." : "Save Profile Details"}
-                    </button>
-
-                    {onResetProfile && (
-                      <button
-                        type="button"
-                        onClick={onResetProfile}
-                        className="w-full mt-2.5 py-2.5 bg-white hover:bg-rose-50 border border-stone-200 hover:border-rose-200 text-stone-500 hover:text-rose-600 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin-hover" />
-                        <span>Retake Personality Quiz</span>
-                      </button>
-                    )}
-                  </div>
-                </form>
+                ))}
               </div>
             )}
           </div>
         )}
+
+        {activeTab === "profile" && (
+          <div className="px-5 pt-8 pb-8">
+            <div className="flex justify-between items-start mb-5">
+              <div>
+                <h1 className="text-[32px] font-black tracking-[-0.045em]">You</h1>
+                <p className="text-[16px] text-[#7b6c66] mt-1">Only stored on this device</p>
+              </div>
+              <button onClick={() => setEditing((v) => !v)} className="rounded-[24px] border-2 border-[#2b1b18] bg-white px-5 py-3 flex items-center gap-2 font-extrabold text-[17px]"><Pencil className="w-5 h-5" /> Edit</button>
+            </div>
+
+            {editing ? (
+              <form onSubmit={saveProfile} className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 space-y-4 mb-6">
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Name" />
+                <input value={editAge} onChange={(e) => setEditAge(e.target.value.replace(/\D/g, ""))} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Age" />
+                <input value={editLocation} onChange={(e) => setEditLocation(e.target.value)} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="City" />
+                <textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} className="w-full rounded-2xl border-2 border-[#2b1b18] px-4 py-3 text-[17px]" rows={3} placeholder="About you" />
+                <button className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#e84962] to-[#ef7938] text-white font-black text-[18px]">Save</button>
+              </form>
+            ) : (
+              <>
+                <BlindArt className="w-full h-[205px] rounded-[34px]" />
+                <h2 className="text-[38px] font-black tracking-[-0.045em] mt-6">{currentUser.name}, {currentUser.age}</h2>
+                <div className="flex items-center gap-2 mt-2 text-[#776761] text-[19px]"><MapPin className="w-5 h-5" /> {currentUser.location}</div>
+                {currentUser.bio && <p className="text-[19px] mt-5 leading-relaxed">{currentUser.bio}</p>}
+                <div className="mt-5 inline-flex rounded-full bg-[#fde3e8] px-4 py-2 text-[#d9445e] font-extrabold">Profile type: {archetype.name}</div>
+              </>
+            )}
+
+            <h2 className="text-[25px] font-black mt-9 mb-5">Your personality</h2>
+            <div className="space-y-3">
+              {personalityAnswers.map((item) => (
+                <div key={item.label} className="rounded-[25px] border-2 border-[#2b1b18] bg-white px-5 py-4">
+                  <div className="text-[#e84962] text-[14px] uppercase font-black">{item.label}</div>
+                  <div className="text-[18px] mt-1">{item.answer}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "stats" && (
+          <div className="px-5 pt-10 pb-8">
+            <h1 className="text-[34px] font-black tracking-[-0.045em]">Stats</h1>
+            <p className="text-[18px] text-[#7b6c66] mt-1">Counted locally on this device</p>
+
+            <div className="grid grid-cols-2 gap-4 mt-6">
+              {[
+                [stats.sparks, "Sparks sent"],
+                [matches.length, "Matches"],
+                [stats.messages, "Messages sent"],
+                [stats.skipped, "Skipped"],
+                [blockedIds.length, "Blocked"],
+                [`${stats.average}%`, "Avg compatibility"],
+              ].map(([value, label]) => (
+                <div key={String(label)} className="rounded-[30px] border-2 border-[#2b1b18] bg-white px-5 py-6 min-h-[130px]">
+                  <div className="text-[42px] leading-none text-[#d94452] font-black">{value}</div>
+                  <div className="mt-4 text-[17px] text-[#7b6c66]">{label}</div>
+                </div>
+              ))}
+            </div>
+
+            <h2 className="text-[25px] leading-tight font-black mt-9 mb-6">Where you overlap with the demo pool</h2>
+            <div className="space-y-5">
+              {DIMENSIONS.map(([, label], index) => (
+                <div key={label}>
+                  <div className="flex justify-between items-center text-[18px] font-extrabold mb-2"><span>{label}</span><span>{overlapValues[index]}%</span></div>
+                  <div className="h-3 rounded-full bg-[#f4e9e3] overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-[#d9475c] to-[#ee7937]" style={{ width: `${overlapValues[index]}%` }} /></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "settings" && (
+          <div className="px-5 pt-10 pb-8">
+            <h1 className="text-[34px] font-black tracking-[-0.045em] mb-6">Settings</h1>
+
+            <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5">
+              <h2 className="text-[23px] font-black mb-6">Discovery preferences</h2>
+
+              <div className="mb-7">
+                <div className="flex justify-between text-[18px] font-extrabold mb-3"><span>Maximum distance</span><span className="text-[#df4860]">{maxDistance} km</span></div>
+                <input type="range" min={5} max={100} value={maxDistance} onChange={(e) => { const next=Number(e.target.value); setMaxDistance(next); localStorage.setItem(`blindspark_max_distance_${currentUser.id}`, String(next)); }} className="w-full accent-[#df4860]" />
+              </div>
+
+              <div className="mb-7">
+                <div className="flex justify-between text-[18px] font-extrabold mb-3"><span>Minimum age</span><span className="text-[#df4860]">{minAge} yrs</span></div>
+                <input type="range" min={18} max={60} value={minAge} onChange={(e) => { const next=Number(e.target.value); setMinAge(next); localStorage.setItem(`blindspark_min_age_${currentUser.id}`, String(next)); }} className="w-full accent-[#df4860]" />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-[18px] font-extrabold mb-3"><span>Maximum age</span><span className="text-[#df4860]">{maxAge} yrs</span></div>
+                <input type="range" min={18} max={80} value={maxAge} onChange={(e) => { const next=Number(e.target.value); setMaxAge(next); localStorage.setItem(`blindspark_max_age_${currentUser.id}`, String(next)); }} className="w-full accent-[#df4860]" />
+              </div>
+
+              <p className="text-[16px] text-[#7b6c66] mt-6 leading-relaxed">Distances are simulated unless you saved coordinates in your profile.</p>
+            </div>
+
+            <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
+              <h2 className="text-[23px] font-black mb-5">Skipped profiles</h2>
+              <button disabled={!skippedCount} onClick={resetSkipped} className="w-full h-16 rounded-[22px] border-2 border-[#9f9691] text-[#8e8580] disabled:opacity-55 text-[19px] font-bold">Reset {skippedCount} skipped</button>
+            </div>
+
+            <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
+              <h2 className="text-[23px] font-black">Blocked ({blockedIds.length})</h2>
+              <p className="text-[18px] text-[#7b6c66] mt-5">{blockedIds.length ? `${blockedIds.length} profile${blockedIds.length === 1 ? " is" : "s are"} blocked.` : "No one is blocked."}</p>
+            </div>
+
+            <button onClick={() => alert("On iPhone Safari: tap Share, then Add to Home Screen.")} className="w-full h-16 rounded-[28px] border-2 border-[#2b1b18] bg-white mt-5 text-[19px] font-black flex items-center justify-center gap-3"><Smartphone className="w-5 h-5 text-[#e84962]" /> Install BlindSpark</button>
+
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              {onResetProfile && <button onClick={onResetProfile} className="h-14 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold flex items-center justify-center gap-2"><RefreshCw className="w-5 h-5" /> Retake quiz</button>}
+              <button onClick={onLogout} className="h-14 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold flex items-center justify-center gap-2"><LogOut className="w-5 h-5" /> Log out</button>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* Global Tab Navigation Footer */}
-      {!activeChat && (
-        <nav className="bottom-safe-nav fixed bottom-0 inset-x-0 bg-white border-t border-stone-200 py-3.5 px-6 flex justify-around items-center z-40 max-w-md mx-auto md:relative md:border-t-0 md:bg-transparent md:px-0">
+      <nav className="bottom-safe-nav fixed bottom-0 inset-x-0 z-50 border-t-2 border-[#2b1b18] bg-[#fffaf4]/95 backdrop-blur">
+        <div className="max-w-md mx-auto grid grid-cols-5 px-2 pt-3">
           {[
-            { id: "discover", icon: Compass, label: "Compass" },
-            { id: "matches", icon: MessageSquare, label: "Matches" },
-            { id: "stats", icon: Activity, label: "Radar" },
-            { id: "profile", icon: User, label: "Profile" }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+            { id: "discover" as TabId, Icon: Compass, label: "Discover" },
+            { id: "matches" as TabId, Icon: Heart, label: "Matches" },
+            { id: "profile" as TabId, Icon: UserRound, label: "You" },
+            { id: "stats" as TabId, Icon: BarChart3, label: "Stats" },
+            { id: "settings" as TabId, Icon: Settings, label: "Settings" },
+          ].map(({ id, Icon, label }) => {
+            const active = activeTab === id;
             return (
               <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveChat(null);
-                  setActiveTab(tab.id as any);
-                }}
-                className={`flex flex-col items-center gap-1 transition-all cursor-pointer ${
-                  isActive ? "text-rose-600 scale-105 font-bold" : "text-stone-400 hover:text-stone-600"
-                }`}
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`relative flex flex-col items-center gap-1.5 pb-2 text-[13px] font-extrabold ${active ? "text-[#db455e]" : "text-[#6f615b]"}`}
               >
-                <Icon className="w-5 h-5" />
-                <span className="text-[9px] uppercase tracking-wider font-display font-black">{tab.label}</span>
+                <span className={`w-[58px] h-[42px] rounded-full flex items-center justify-center ${active ? "bg-[#fde2e8]" : ""}`}><Icon className="w-7 h-7" /></span>
+                <span>{label}</span>
+                {id === "matches" && matches.length > 0 && <span className="absolute top-[-5px] right-[18px] min-w-5 h-5 rounded-full bg-[#e25a42] text-white text-[11px] flex items-center justify-center px-1">{matches.length}</span>}
               </button>
             );
           })}
-        </nav>
-      )}
+        </div>
+      </nav>
 
-      {/* Profile Details Modal Overlay */}
       {selectedPartner && (
         <ProfileDetailsModal
           partner={selectedPartner.partner}
           matchScore={selectedPartner.matchScore}
           onClose={() => setSelectedPartner(null)}
-          onUnmatch={() => handleUnmatch(selectedPartner.matchId, selectedPartner.partner.id)}
-          onBlock={() => handleBlockUser(selectedPartner.partner.id, selectedPartner.matchId)}
+          onUnmatch={() => void handleUnmatch(selectedPartner.matchId)}
+          onBlock={() => void handleBlock(selectedPartner.partner.id, selectedPartner.matchId)}
         />
       )}
     </div>
