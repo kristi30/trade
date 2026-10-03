@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 import appletConfig from "../../firebase-applet-config.json";
 
 const firebaseConfig = {
@@ -23,5 +24,6 @@ const db = appletConfig?.firestoreDatabaseId &&
 
 const auth = getAuth(app);
 const storage = getStorage(app);
+const functions = getFunctions(app);
 
-export { app, db, auth, storage };
+export { app, db, auth, storage, functions };
