@@ -194,12 +194,12 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
   const overlapValues = [71, 43, 69, 69, 67, 64];
 
   return (
-    <div className="app-safe-screen min-h-[100dvh] bg-[#fffaf4] text-[#2b1b18] font-sans pb-[108px]">
-      <main className="max-w-md mx-auto min-h-[calc(100dvh-108px)]">
+    <div className="app-safe-screen min-h-[100dvh] bg-[#fffaf4] text-[#2b1b18] font-sans">
+      <main className="mobile-page-scroll max-w-md mx-auto w-full">
         {activeTab === "discover" && <Discovery currentUser={currentUser} onMatchCreated={handleMatchCreated} />}
 
         {activeTab === "matches" && (
-          <div className="px-5 pt-10">
+          <div className="px-5 pt-10 pb-10">
             <h1 className="text-[34px] font-black tracking-[-0.045em]">Matches</h1>
             <p className="text-[19px] text-[#7b6c66] mt-1">{matches.length} {matches.length === 1 ? "spark" : "sparks"}</p>
 
@@ -237,7 +237,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
         )}
 
         {activeTab === "profile" && (
-          <div className="px-5 pt-8 pb-8">
+          <div className="px-5 pt-8 pb-10">
             <div className="flex justify-between items-start mb-5">
               <div>
                 <h1 className="text-[32px] font-black tracking-[-0.045em]">You</h1>
@@ -310,7 +310,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
         )}
 
         {activeTab === "settings" && (
-          <div className="px-5 pt-6 pb-[170px] min-h-[100dvh] overflow-y-auto">
+          <div className="px-5 pt-6 pb-10">
             <div className="flex items-center justify-between gap-3 mb-6">
               <h1 className="text-[34px] font-black tracking-[-0.045em]">Settings</h1>
               <button
