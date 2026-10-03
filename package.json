@@ -1,0 +1,50 @@
+{
+  "name": "blindspark",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build:web": "vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server-dist/server.cjs",
+    "build": "npm run build:web && npm run build:server",
+    "start": "node server-dist/server.cjs",
+    "clean": "rm -rf dist server-dist ios android",
+    "lint": "tsc --noEmit",
+    "cap:sync": "npm run build:web && npx cap sync",
+    "cap:android": "npm run build:web && npx cap sync android && npx cap open android",
+    "cap:ios": "npm run build:web && npx cap sync ios && node scripts/patch-ios.mjs && npx cap open ios",
+    "ios:setup": "node scripts/setup-ios.mjs",
+    "ios:patch": "node scripts/patch-ios.mjs",
+    "pwa:build": "npm run build:web",
+    "pwa:preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "firebase": "^12.15.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/geolocation": "^8.2.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "@capacitor/cli": "^8.5.2"
+  }
+}
