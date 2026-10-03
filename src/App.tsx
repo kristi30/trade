@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
   GoogleAuthProvider,
+  OAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   sendPasswordResetEmail,
@@ -110,6 +111,21 @@ export default function App() {
       await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (error: any) {
       setAuthMessage(error?.message?.replace("Firebase: ", "") || "Google sign-in failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signInApple = async () => {
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      const provider = new OAuthProvider("apple.com");
+      provider.addScope("email");
+      provider.addScope("name");
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      setAuthMessage(error?.message?.replace("Firebase: ", "") || "Apple sign-in failed. Make sure Apple is enabled in Firebase Authentication.");
     } finally {
       setAuthBusy(false);
     }
@@ -254,9 +270,14 @@ export default function App() {
                 </button>
               </form>
 
-              <button onClick={signInGoogle} disabled={authBusy} className="w-full h-14 rounded-[20px] border-2 border-[#2b1b18] mt-3 font-extrabold bg-white">
-                Continue with Google
-              </button>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <button onClick={signInGoogle} disabled={authBusy} className="h-14 rounded-[20px] border-2 border-[#2b1b18] font-extrabold bg-white">
+                  Google
+                </button>
+                <button onClick={signInApple} disabled={authBusy} className="h-14 rounded-[20px] border-2 border-[#2b1b18] font-extrabold bg-[#2b1b18] text-white">
+                  Apple
+                </button>
+              </div>
 
               {authMode === "signin" && (
                 <button onClick={resetPassword} className="w-full mt-3 text-[#e84962] font-bold text-[14px]">Forgot password?</button>
