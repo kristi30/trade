@@ -3,6 +3,7 @@ import {
   GoogleAuthProvider,
   OAuthProvider,
   createUserWithEmailAndPassword,
+  deleteUser,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -10,8 +11,9 @@ import {
   signOut,
 } from "firebase/auth";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { Heart, Info, LockKeyhole, Mail, Sparkles, UserRound } from "lucide-react";
-import { auth, db } from "./lib/firebase";
+import { auth, db, functions } from "./lib/firebase";
 import { Profile } from "./types";
 import Onboarding from "./components/Onboarding";
 import Dashboard from "./components/Dashboard";
@@ -171,6 +173,40 @@ export default function App() {
     localStorage.setItem(`blindspark_profile_${updated.id}`, JSON.stringify(updated));
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    const confirmed = window.confirm(
+      "Delete your BlindSpark account and profile data? This cannot be undone."
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    const isLocal = user.uid?.startsWith("local_") || user.isLocalFallback;
+
+    try {
+      if (isLocal) {
+        const keys = Object.keys(localStorage).filter((key) => key.startsWith("blindspark_"));
+        keys.forEach((key) => localStorage.removeItem(key));
+      } else {
+        try {
+          const removeData = httpsCallable(functions, "deleteMyAccountData");
+          await removeData();
+        } catch (cloudError) {
+          console.warn("Cloud account cleanup function unavailable; using client fallback.", cloudError);
+          await deleteDoc(doc(db, "profiles", user.uid)).catch(() => undefined);
+          if (auth.currentUser) await deleteUser(auth.currentUser);
+        }
+      }
+      setUser(null);
+      setProfile(null);
+    } catch (error: any) {
+      console.warn("Account deletion failed:", error);
+      alert(error?.message || "Account deletion could not be completed. You may need to sign in again first.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="app-safe-screen bg-[#fffaf4] flex items-center justify-center text-[#2b1b18]">
@@ -303,6 +339,7 @@ export default function App() {
       onLogout={handleLogout}
       onProfileUpdate={handleProfileUpdate}
       onResetProfile={handleResetProfile}
+      onDeleteAccount={handleDeleteAccount}
     />
   );
 }
