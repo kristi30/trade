@@ -106,8 +106,8 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
   }, [currentUser.id, blockedIds.join("|")]);
 
   useEffect(() => {
-    if (activeTab === "matches" || activeTab === "stats") reloadLocalMatches();
-  }, [activeTab, version]);
+    if (isLocalMode && (activeTab === "matches" || activeTab === "stats")) reloadLocalMatches();
+  }, [activeTab, version, isLocalMode]);
 
   const handleMatchCreated = (match: Match, partner: Profile) => {
     setMatches((prev) => prev.some((item) => item.match.id === match.id) ? prev : [{ match, partner }, ...prev]);
@@ -326,7 +326,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
         {activeTab === "stats" && (
           <div className="px-5 pt-10 pb-8">
             <h1 className="text-[34px] font-black tracking-[-0.045em]">Stats</h1>
-            <p className="text-[18px] text-[#7b6c66] mt-1">Counted locally on this device</p>
+            <p className="text-[18px] text-[#7b6c66] mt-1">{isLocalMode ? "Counted locally on this device" : "Synced from this device and your account"}</p>
 
             <div className="grid grid-cols-2 gap-4 mt-6">
               {[
