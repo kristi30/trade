@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import {
   BarChart3,
   Bell,
@@ -31,6 +31,7 @@ interface DashboardProps {
   onLogout: () => void;
   onProfileUpdate: (updatedProfile: Profile) => void;
   onResetProfile?: () => void;
+  onDeleteAccount?: () => void;
 }
 
 type TabId = "discover" | "matches" | "profile" | "stats" | "settings";
@@ -50,7 +51,7 @@ function profileForPartner(id: string): Profile | null {
   return seed ? ({ ...seed, id } as Profile) : null;
 }
 
-export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onResetProfile }: DashboardProps) {
+export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onResetProfile, onDeleteAccount }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>("discover");
   const [matches, setMatches] = useState<MatchPair[]>([]);
   const [activeChat, setActiveChat] = useState<MatchPair | null>(null);
@@ -71,6 +72,15 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
 
   const isLocalMode = currentUser.id.startsWith("local_");
   const archetype = ARCHETYPES[currentUser.archetype];
+
+  useEffect(() => {
+    if (isLocalMode) return;
+    void getDocs(collection(db, "profiles", currentUser.id, "blocks")).then((snapshot) => {
+      const ids = snapshot.docs.map((item) => item.id);
+      setBlockedIds(ids);
+      localStorage.setItem(`blindspark_blocked_${currentUser.id}`, JSON.stringify(ids));
+    }).catch(() => undefined);
+  }, [currentUser.id, isLocalMode]);
 
   const reloadLocalMatches = () => {
     const saved: Match[] = JSON.parse(localStorage.getItem(`blindspark_matches_${currentUser.id}`) || "[]");
@@ -488,6 +498,18 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
             </div>
 
             <button onClick={() => alert("On iPhone Safari: tap Share, then Add to Home Screen.")} className="w-full h-16 rounded-[28px] border-2 border-[#2b1b18] bg-white mt-5 text-[19px] font-black flex items-center justify-center gap-3"><Smartphone className="w-5 h-5 text-[#e84962]" /> Install BlindSpark</button>
+
+            {onDeleteAccount && (
+              <div className="rounded-[30px] border-2 border-[#d9445e] bg-[#fff5f6] p-5 mt-5">
+                <h2 className="text-[22px] font-black text-[#c93851]">Your data</h2>
+                <p className="text-[14px] text-[#7b6c66] leading-relaxed mt-2">
+                  Delete your account, profile, matches, messages, device tokens and outgoing likes. Safety reports may be retained where required.
+                </p>
+                <button onClick={onDeleteAccount} className="w-full h-14 mt-4 rounded-[22px] bg-[#d9445e] text-white font-black">
+                  Delete my account
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3 mt-5">
               {onResetProfile && <button onClick={onResetProfile} className="h-14 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold flex items-center justify-center gap-2"><RefreshCw className="w-5 h-5" /> Retake quiz</button>}
