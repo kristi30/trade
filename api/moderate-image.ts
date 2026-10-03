@@ -1,9 +1,17 @@
 import { moderateImageDataUrl } from "../src/serverModeration";
+import { checkRateLimit } from "../src/serverRateLimit";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ allowed: false, reason: "Method not allowed" });
+  }
+
+  const clientKey = String(req.headers?.["x-forwarded-for"] || req.socket?.remoteAddress || "moderation");
+  const rate = checkRateLimit(`moderation:${clientKey}`, 12, 60_000);
+  if (!rate.allowed) {
+    res.setHeader("Retry-After", Math.ceil(rate.retryAfterMs / 1000));
+    return res.status(429).json({ allowed: false, reason: "Too many moderation requests" });
   }
 
   const imageDataUrl = req.body?.imageDataUrl;
