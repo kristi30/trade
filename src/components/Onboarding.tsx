@@ -1,564 +1,290 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { doc, setDoc } from "firebase/firestore";
-import { db, auth } from "../lib/firebase";
-import { QUIZ_QUESTIONS, ARCHETYPES } from "../data";
-import { Profile, ArchetypeId } from "../types";
-import { Sparkles, ArrowRight, Check, MapPin, User, Eye, Calendar } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { ArrowLeft, Crosshair, MapPin, Sparkles } from "lucide-react";
+import { db } from "../lib/firebase";
+import { ARCHETYPES, QUIZ_QUESTIONS } from "../data";
+import { ArchetypeId, Profile } from "../types";
 
 interface OnboardingProps {
   userId: string;
   onComplete: (profile: Profile) => void;
 }
 
-const PROMPT_QUESTIONS = [
-  "My ideal Sunday looks like...",
-  "What makes me laugh the hardest...",
-  "A boundary I value in a partner...",
-  "My absolute favorite coffee or tea spot..."
-];
+function calculateArchetype(answers: Record<string, string>): ArchetypeId {
+  const counts: Record<ArchetypeId, number> = {
+    idealist: 0,
+    adventurer: 0,
+    homebody: 0,
+    witty: 0,
+    thinker: 0,
+  };
+
+  for (const [questionId, selected] of Object.entries(answers)) {
+    const question = QUIZ_QUESTIONS.find((q) => q.id === questionId);
+    const option = question?.options[Number(selected)];
+    if (option) counts[option.archetype] += 1;
+  }
+
+  return (Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "idealist") as ArchetypeId;
+}
 
 export default function Onboarding({ userId, onComplete }: OnboardingProps) {
-  const [step, setStep] = useState<"basic-info" | "quiz" | "prompts" | "bio" | "archetype-reveal">("basic-info");
-  
-  // Basic Info State
-  const [name, setName] = useState(() => {
-    const currentUser = auth.currentUser;
-    if (currentUser && !currentUser.isAnonymous && currentUser.displayName) {
-      return currentUser.displayName.split(" ")[0];
-    }
-    return "";
-  });
-  const [age, setAge] = useState("24");
-  const [gender, setGender] = useState("");
-  const [lookingFor, setLookingFor] = useState("");
+  const [step, setStep] = useState<1 | 2>(1);
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
   const [location, setLocation] = useState("");
-  const [latitude, setLatitude] = useState<number | undefined>(undefined);
-  const [longitude, setLongitude] = useState<number | undefined>(undefined);
-  
-  // Quiz State
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
-  
-  // Spark Prompts State
-  const [prompt1, setPrompt1] = useState(PROMPT_QUESTIONS[0]);
-  const [answer1, setAnswer1] = useState("");
-  const [prompt2, setPrompt2] = useState(PROMPT_QUESTIONS[1]);
-  const [answer2, setAnswer2] = useState("");
-  
-  // Bio State
   const [bio, setBio] = useState("");
-  
-  // Final calculated Archetype
-  const [calculatedArchetype, setCalculatedArchetype] = useState<ArchetypeId | null>(null);
+  const [latitude, setLatitude] = useState<number | undefined>();
+  const [longitude, setLongitude] = useState<number | undefined>();
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
+  const [isLocating, setIsLocating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  // Ask for location once to prefill the city/area. The field stays editable.
-  useEffect(() => {
-    let cancelled = false;
 
-    const reverseGeocode = async (lat: number, lon: number) => {
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        const city = data.address?.city || data.address?.town || data.address?.village || data.address?.suburb || data.address?.county || data.address?.state;
-        if (!cancelled && city) setLocation(city);
-      } catch (error) {
-        console.warn("Failed to reverse geocode coordinates:", error);
-      }
-    };
+  const archetype = useMemo(() => calculateArchetype(quizAnswers), [quizAnswers]);
+  const archetypeInfo = ARCHETYPES[archetype];
 
-    const detectLocation = async () => {
-      try {
-        let lat: number;
-        let lon: number;
+  const locateMe = async () => {
+    setIsLocating(true);
+    try {
+      let lat: number;
+      let lon: number;
 
-        if (Capacitor.isNativePlatform()) {
-          const permission = await Geolocation.requestPermissions();
-          if (permission.location !== "granted" && permission.coarseLocation !== "granted") return;
-          const position = await Geolocation.getCurrentPosition({
+      if (Capacitor.isNativePlatform()) {
+        const permission = await Geolocation.requestPermissions();
+        if (permission.location !== "granted" && permission.coarseLocation !== "granted") return;
+        const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 10000 });
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+      } else {
+        if (!navigator.geolocation) return;
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
             enableHighAccuracy: false,
             timeout: 10000,
             maximumAge: 300000,
           });
-          lat = position.coords.latitude;
-          lon = position.coords.longitude;
-        } else {
-          if (!navigator.geolocation) return;
-          const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: false,
-              timeout: 8000,
-              maximumAge: 300000,
-            });
-          });
-          lat = position.coords.latitude;
-          lon = position.coords.longitude;
-        }
-
-        if (cancelled) return;
-        setLatitude(lat);
-        setLongitude(lon);
-        await reverseGeocode(lat, lon);
-      } catch (error) {
-        console.warn("Location permission denied or location unavailable:", error);
+        });
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
       }
-    };
 
-    detectLocation();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      setLatitude(lat);
+      setLongitude(lon);
 
-  // Calculate the user's personality archetype based on their quiz answers
-  const calculateArchetype = (): ArchetypeId => {
-    const counts: Record<ArchetypeId, number> = {
-      idealist: 0,
-      adventurer: 0,
-      homebody: 0,
-      witty: 0,
-      thinker: 0,
-    };
-
-    // Aggregate votes
-    Object.entries(quizAnswers).forEach(([questionId, selectedOptionIndex]) => {
-      const optionIndexStr = selectedOptionIndex as string;
-      const question = QUIZ_QUESTIONS.find((q) => q.id === questionId);
-      if (question) {
-        const option = question.options[parseInt(optionIndexStr)];
-        if (option) {
-          counts[option.archetype]++;
-        }
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+        const data = await response.json();
+        const city = data.address?.city || data.address?.town || data.address?.village || data.address?.suburb || data.address?.county;
+        if (city) setLocation(city);
+      } catch {
+        // Coordinates stay saved even when reverse geocoding is unavailable.
       }
-    });
-
-    // Find archetype with the highest count
-    let maxCount = -1;
-    let finalArchetype: ArchetypeId = "idealist"; // Default fallback
-
-    Object.entries(counts).forEach(([archetype, count]) => {
-      if (count > maxCount) {
-        maxCount = count;
-        finalArchetype = archetype as ArchetypeId;
-      }
-    });
-
-    return finalArchetype;
-  };
-
-  const handleNextFromQuiz = (selectedOptionIndex: number) => {
-    const currentQuestion = QUIZ_QUESTIONS[currentQuestionIndex];
-    const updatedAnswers = {
-      ...quizAnswers,
-      [currentQuestion.id]: selectedOptionIndex.toString(),
-    };
-    setQuizAnswers(updatedAnswers);
-
-    if (currentQuestionIndex < QUIZ_QUESTIONS.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
-    } else {
-      // End of quiz, calculate archetype and proceed
-      const counts: Record<ArchetypeId, number> = {
-        idealist: 0,
-        adventurer: 0,
-        homebody: 0,
-        witty: 0,
-        thinker: 0,
-      };
-      Object.entries(updatedAnswers).forEach(([qId, oIdx]) => {
-        const optionIndexStr = oIdx as string;
-        const q = QUIZ_QUESTIONS.find((x) => x.id === qId);
-        const opt = q?.options[parseInt(optionIndexStr)];
-        if (opt) counts[opt.archetype]++;
-      });
-      let maxCount = -1;
-      let finalArch: ArchetypeId = "idealist";
-      Object.entries(counts).forEach(([arch, count]) => {
-        if (count > maxCount) {
-          maxCount = count;
-          finalArch = arch as ArchetypeId;
-        }
-      });
-
-      setCalculatedArchetype(finalArch);
-      setStep("archetype-reveal");
+    } catch (error) {
+      console.warn("Location unavailable:", error);
+    } finally {
+      setIsLocating(false);
     }
   };
 
-  const handleCompleteOnboarding = async () => {
-    if (!calculatedArchetype) return;
+  const finish = async () => {
+    if (Object.keys(quizAnswers).length !== QUIZ_QUESTIONS.length) return;
     setIsSaving(true);
 
-    const profileData: Profile = {
+    const profile: Profile = {
       id: userId,
-      name,
-      age: parseInt(age, 10) || 24,
-      gender,
-      lookingFor,
-      location,
+      name: name.trim(),
+      age: Number(age),
+      gender: "unspecified",
+      lookingFor: "everyone",
+      location: location.trim(),
       latitude,
       longitude,
-      archetype: calculatedArchetype,
+      archetype,
       quizAnswers,
-      bio,
-      sparkPrompts: {
-        [prompt1]: answer1,
-        [prompt2]: answer2,
-      },
+      bio: bio.trim(),
+      sparkPrompts: {},
     };
 
-    // Always save to localStorage first as a reliable backup/fallback
-    localStorage.setItem(`blindspark_profile_${userId}`, JSON.stringify(profileData));
+    localStorage.setItem(`blindspark_profile_${userId}`, JSON.stringify(profile));
 
     try {
-      const isLocalMode = userId.startsWith("local_");
-      if (!isLocalMode) {
-        await Promise.race([
-          setDoc(doc(db, "profiles", userId), profileData),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout saving profile")), 10000)),
-        ]);
+      if (!userId.startsWith("local_")) {
+        await setDoc(doc(db, "profiles", userId), profile);
       }
-    } catch (err) {
-      console.warn("Could not save profile to cloud Firestore (using local storage fallback instead):", err);
+    } catch (error) {
+      console.warn("Cloud save failed; local profile is still available.", error);
     } finally {
       setIsSaving(false);
-      onComplete(profileData);
+      onComplete(profile);
     }
   };
 
+  const basicReady = name.trim().length > 0 && Number(age) >= 18 && location.trim().length > 0;
+  const quizReady = Object.keys(quizAnswers).length === QUIZ_QUESTIONS.length;
+
   return (
-    <div className="min-h-screen bg-[#FCFAF7] text-stone-900 flex flex-col justify-center items-center px-4 py-8 select-none">
-      <div className="w-full max-w-lg bg-white border border-stone-200/75 rounded-3xl shadow-xl shadow-stone-200/30 p-6 md:p-8 relative overflow-hidden">
-        {/* Subtle decorative sunset blurred backgrounds */}
-        <div className="absolute -top-12 -left-12 w-48 h-48 bg-rose-200/20 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute -bottom-12 -right-12 w-48 h-48 bg-amber-200/20 rounded-full blur-3xl" />
-
-        <AnimatePresence mode="wait">
-          {step === "basic-info" && (
-            <motion.div
-              key="basic-info"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="flex flex-col gap-5"
+    <div className="min-h-[100dvh] bg-[#fffaf4] text-[#2b1b18] font-sans pb-[122px]">
+      {step === 1 ? (
+        <div className="max-w-md mx-auto px-5 pt-8">
+          <div className="flex items-center gap-4 mb-5">
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="w-14 h-14 rounded-full border-2 border-[#2b1b18] flex items-center justify-center bg-white"
             >
-              <div>
-                <h2 className="text-xl font-black font-display tracking-tight text-stone-900 mb-1">Tell us the basics</h2>
-                <p className="text-stone-500 text-xs">This builds your foundational dating profile.</p>
-              </div>
+              <ArrowLeft className="w-6 h-6" />
+            </button>
+            <div>
+              <h1 className="text-[34px] leading-none font-black tracking-[-0.04em]">About you</h1>
+              <p className="text-[18px] text-[#7d6d67] mt-2">Step 1 of 2</p>
+            </div>
+          </div>
 
-              {/* Name and Age grid */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col gap-2 col-span-2">
-                  <label className="text-xs text-stone-500 font-bold uppercase tracking-wider">Your First Name</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-stone-400">
-                      <User className="w-4 h-4" />
-                    </span>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="e.g. Maya"
-                      maxLength={15}
-                      className="w-full bg-stone-50 border border-stone-200 focus:border-rose-500 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all text-stone-900 placeholder-stone-400 font-medium"
-                    />
-                  </div>
-                </div>
+          <div className="h-2 rounded-full bg-[#f3e9e3] overflow-hidden mb-6">
+            <div className="h-full w-[40%] rounded-full bg-gradient-to-r from-[#e94160] to-[#f07b36]" />
+          </div>
 
-                <div className="flex flex-col gap-2 col-span-1">
-                  <label className="text-xs text-stone-500 font-bold uppercase tracking-wider">Age</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-stone-400">
-                      <Calendar className="w-4 h-4" />
-                    </span>
-                    <input
-                      type="number"
-                      value={age}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === "" || (parseInt(val, 10) >= 0 && parseInt(val, 10) <= 120)) {
-                          setAge(val);
-                        }
-                      }}
-                      placeholder="24"
-                      min={18}
-                      max={100}
-                      className="w-full bg-stone-50 border border-stone-200 focus:border-rose-500 rounded-xl pl-9 pr-2 py-3 text-sm focus:outline-none transition-all text-stone-900 placeholder-stone-400 font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                  </div>
-                </div>
-              </div>
+          <div className="space-y-5">
+            <label className="block">
+              <span className="block text-[22px] font-extrabold mb-3">First name or nickname</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full h-[72px] rounded-[28px] border-2 border-[#2b1b18] bg-white px-5 text-[20px] outline-none focus:ring-4 focus:ring-rose-100"
+                maxLength={24}
+              />
+            </label>
 
-              {/* Gender */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs text-stone-500 font-bold uppercase tracking-wider">I identify as</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {["female", "male", "non-binary"].map((g) => (
-                    <button
-                      key={g}
-                      onClick={() => setGender(g)}
-                      className={`py-3 rounded-xl border text-xs capitalize font-bold transition-all duration-200 cursor-pointer ${
-                        gender === g
-                          ? "bg-rose-500/10 border-rose-300 text-rose-600 shadow-sm"
-                          : "bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-300"
-                      }`}
-                    >
-                      {g}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <label className="block">
+              <span className="block text-[22px] font-extrabold mb-3">Age (18+ only)</span>
+              <input
+                value={age}
+                onChange={(e) => setAge(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                inputMode="numeric"
+                className="w-full h-[72px] rounded-[28px] border-2 border-[#2b1b18] bg-white px-5 text-[20px] outline-none focus:ring-4 focus:ring-rose-100"
+              />
+            </label>
 
-              {/* Looking For */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs text-stone-500 font-bold uppercase tracking-wider">I am looking to meet</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {["female", "male", "everyone"].map((lf) => (
-                    <button
-                      key={lf}
-                      onClick={() => setLookingFor(lf)}
-                      className={`py-3 rounded-xl border text-xs capitalize font-bold transition-all duration-200 cursor-pointer ${
-                        lookingFor === lf
-                          ? "bg-amber-500/10 border-amber-300 text-amber-700 shadow-sm"
-                          : "bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-300"
-                      }`}
-                    >
-                      {lf}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Location */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs text-stone-500 font-bold uppercase tracking-wider">City / Area</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-stone-400">
-                    <MapPin className="w-4 h-4" />
-                  </span>
-                  <input
-                    type="text"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="e.g. Milan"
-                    maxLength={50}
-                    className="w-full bg-stone-50 border border-stone-200 focus:border-rose-500 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none transition-all text-stone-900 placeholder-stone-400 font-medium"
-                  />
-                </div>
-                <p className="text-[10px] text-stone-400">We can detect your area from location permission, and you can edit it anytime.</p>
-              </div>
-
-              <button
-                disabled={!name.trim() || !gender || !lookingFor || !location.trim() || !age || parseInt(age, 10) < 18}
-                onClick={() => setStep("quiz")}
-                className="w-full mt-2 py-4 bg-stone-900 hover:bg-stone-800 disabled:bg-stone-100 text-white disabled:text-stone-400 rounded-xl font-bold flex items-center justify-center gap-2 transition-all duration-300 shadow-sm cursor-pointer"
-              >
-                Begin Personality Quiz
-                <ArrowRight className="w-5 h-5" />
-              </button>
-            </motion.div>
-          )}
-
-          {step === "quiz" && (
-            <motion.div
-              key="quiz"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col gap-5"
-            >
-              {/* Quiz Progress */}
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-rose-600 font-black uppercase tracking-widest font-display">Chemistry Assessment</span>
-                <span className="text-xs text-stone-500 font-semibold">
-                  Question {currentQuestionIndex + 1} of {QUIZ_QUESTIONS.length}
-                </span>
-              </div>
-              <div className="w-full h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-rose-500 to-amber-500 transition-all duration-300"
-                  style={{ width: `${((currentQuestionIndex + 1) / QUIZ_QUESTIONS.length) * 100}%` }}
+            <label className="block">
+              <span className="block text-[22px] font-extrabold mb-3">City</span>
+              <div className="relative">
+                <MapPin className="w-6 h-6 text-[#e84962] absolute left-5 top-1/2 -translate-y-1/2" />
+                <input
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="w-full h-[72px] rounded-[28px] border-2 border-[#2b1b18] bg-white pl-14 pr-5 text-[20px] outline-none focus:ring-4 focus:ring-rose-100"
                 />
               </div>
-
-              {/* Question Text */}
-              <h2 className="text-lg md:text-xl font-black font-display tracking-tight text-stone-900 leading-snug">
-                {QUIZ_QUESTIONS[currentQuestionIndex].question}
-              </h2>
-
-              {/* Options */}
-              <div className="flex flex-col gap-2">
-                {QUIZ_QUESTIONS[currentQuestionIndex].options.map((opt, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleNextFromQuiz(idx)}
-                    className="w-full text-left bg-stone-50 hover:bg-rose-50/45 border border-stone-200/80 hover:border-rose-400 p-4 rounded-xl text-xs md:text-sm font-semibold text-stone-800 hover:text-rose-700 transition-all duration-200 cursor-pointer shadow-sm"
-                  >
-                    {opt.text}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-
-          {step === "prompts" && (
-            <motion.div
-              key="prompts"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="flex flex-col gap-5"
-            >
-              <div>
-                <h2 className="text-xl font-black font-display tracking-tight text-stone-900 mb-1">Dating Prompts</h2>
-                <p className="text-stone-500 text-xs font-medium">Without photos, your answers are how you show off your spark.</p>
-              </div>
-
-              {/* Prompt 1 */}
-              <div className="flex flex-col gap-2">
-                <select
-                  value={prompt1}
-                  onChange={(e) => setPrompt1(e.target.value)}
-                  className="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-extrabold text-rose-600 focus:outline-none cursor-pointer"
-                >
-                  {PROMPT_QUESTIONS.map((pq) => (
-                    <option key={pq} value={pq}>
-                      {pq}
-                    </option>
-                  ))}
-                </select>
-                <textarea
-                  value={answer1}
-                  onChange={(e) => setAnswer1(e.target.value)}
-                  placeholder="Type a creative, sparky response..."
-                  maxLength={100}
-                  rows={2}
-                  className="w-full bg-stone-50 border border-stone-200 focus:border-rose-400 rounded-xl p-3 text-sm focus:outline-none text-stone-900 resize-none placeholder-stone-400 font-medium"
-                />
-                <span className="text-[10px] text-stone-400 font-semibold text-right">{answer1.length}/100</span>
-              </div>
-
-              {/* Prompt 2 */}
-              <div className="flex flex-col gap-2">
-                <select
-                  value={prompt2}
-                  onChange={(e) => setPrompt2(e.target.value)}
-                  className="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-extrabold text-amber-700 focus:outline-none cursor-pointer"
-                >
-                  {PROMPT_QUESTIONS.filter((x) => x !== prompt1).map((pq) => (
-                    <option key={pq} value={pq}>
-                      {pq}
-                    </option>
-                  ))}
-                </select>
-                <textarea
-                  value={answer2}
-                  onChange={(e) => setAnswer2(e.target.value)}
-                  placeholder="Type a creative, sparky response..."
-                  maxLength={100}
-                  rows={2}
-                  className="w-full bg-stone-50 border border-stone-200 focus:border-rose-400 rounded-xl p-3 text-sm focus:outline-none text-stone-900 resize-none placeholder-stone-400 font-medium"
-                />
-                <span className="text-[10px] text-stone-400 font-semibold text-right">{answer2.length}/100</span>
-              </div>
-
               <button
-                disabled={!answer1.trim() || !answer2.trim()}
-                onClick={() => setStep("bio")}
-                className="w-full mt-2 py-4 bg-stone-900 hover:bg-stone-800 disabled:bg-stone-100 text-white disabled:text-stone-400 rounded-xl font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                type="button"
+                onClick={locateMe}
+                className="mt-3 rounded-full bg-[#fde3e8] text-[#e64a63] px-6 py-3 text-[19px] font-bold flex items-center gap-2"
               >
-                Write Your Bio
-                <ArrowRight className="w-5 h-5" />
+                <Crosshair className="w-5 h-5" />
+                {isLocating ? "Finding your location…" : "Use my current location"}
               </button>
-            </motion.div>
-          )}
+            </label>
 
-          {step === "bio" && (
-            <motion.div
-              key="bio"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="flex flex-col gap-5"
-            >
-              <div>
-                <h2 className="text-xl font-black font-display tracking-tight text-stone-900 mb-1">Craft Your Biography</h2>
-                <p className="text-stone-500 text-xs font-medium">Summarize your vibe, what you enjoy, and what you represent.</p>
-              </div>
+            <label className="block">
+              <span className="block text-[22px] font-extrabold mb-3">One line about you (optional)</span>
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                maxLength={180}
+                rows={4}
+                className="w-full rounded-[28px] border-2 border-[#2b1b18] bg-white px-5 py-4 text-[19px] resize-none outline-none focus:ring-4 focus:ring-rose-100"
+              />
+            </label>
+          </div>
 
-              <div className="flex flex-col gap-2">
-                <textarea
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  placeholder="I am passionate about indie cinema, brewing organic kombucha, and long night conversations about absolute nothing..."
-                  maxLength={250}
-                  rows={6}
-                  className="w-full bg-stone-50 border border-stone-200 focus:border-rose-400 rounded-2xl p-4 text-sm focus:outline-none text-stone-900 resize-none leading-relaxed placeholder-stone-400 font-medium"
-                />
-                <span className="text-xs text-stone-400 font-semibold text-right">{bio.length}/250</span>
-              </div>
-
+          <div className="fixed bottom-0 inset-x-0 border-t-2 border-[#2b1b18] bg-[#fffaf4]/95 backdrop-blur z-40">
+            <div className="max-w-md mx-auto px-5 pt-5 pb-[calc(18px+env(safe-area-inset-bottom,0px))]">
               <button
-                disabled={bio.length < 20}
-                onClick={handleCompleteOnboarding}
-                className="w-full mt-2 py-4 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 disabled:from-stone-100 disabled:to-stone-100 text-white disabled:text-stone-400 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
+                type="button"
+                disabled={!basicReady}
+                onClick={() => setStep(2)}
+                className="w-full h-[76px] rounded-[28px] bg-gradient-to-r from-[#dd4a5f] to-[#ef7938] text-white text-[24px] font-black shadow-[0_12px_28px_rgba(232,77,89,.18)] disabled:opacity-40"
               >
-                {isSaving ? "Igniting Spark..." : "Enter blindSpark"}
-                <Sparkles className="w-5 h-5" />
+                Continue
               </button>
-            </motion.div>
-          )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="max-w-md mx-auto px-5 pt-8">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h1 className="text-[32px] leading-none font-black tracking-[-0.04em]">Your personality</h1>
+              <p className="text-[18px] text-[#7d6d67] mt-2">Step 2 of 2</p>
+            </div>
+            <button onClick={() => setStep(1)} className="text-[#e84962] text-[18px] font-extrabold">Edit basics</button>
+          </div>
 
-          {step === "archetype-reveal" && calculatedArchetype && (
-            <motion.div
-              key="archetype-reveal"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="text-center flex flex-col items-center py-4"
-            >
-              <span className="text-[10px] tracking-[0.2em] uppercase font-black text-stone-400 mb-2 font-display">
-                Your Archetype is
-              </span>
+          <div className="h-2 rounded-full bg-[#f3e9e3] overflow-hidden mb-6">
+            <div className="h-full w-[70%] rounded-full bg-gradient-to-r from-[#e94160] to-[#f07b36]" />
+          </div>
 
-              {/* Reveal Badge */}
-              <div className={`p-6 rounded-2xl bg-gradient-to-tr ${ARCHETYPES[calculatedArchetype].gradient} border border-stone-200/80 w-full mb-6 shadow-sm`}>
-                <h2 className={`text-2xl font-black font-display tracking-tight ${ARCHETYPES[calculatedArchetype].textColor} mb-2`}>
-                  {ARCHETYPES[calculatedArchetype].name}
-                </h2>
-                <p className="text-xs italic text-stone-700 max-w-xs mx-auto mb-4 leading-relaxed font-medium">
-                  "{ARCHETYPES[calculatedArchetype].tagline}"
-                </p>
-                <div className="flex flex-wrap justify-center gap-1.5">
-                  {ARCHETYPES[calculatedArchetype].traits.map((trait, idx) => (
-                    <span
-                      key={idx}
-                      className="text-[10px] uppercase font-extrabold px-2.5 py-1 bg-white rounded-full text-stone-600 border border-stone-200/60 shadow-xs"
-                    >
-                      {trait}
-                    </span>
-                  ))}
+          <div className="space-y-9">
+            {QUIZ_QUESTIONS.map((question) => (
+              <section key={question.id}>
+                <h2 className="text-[22px] leading-tight font-black mb-4">{question.question}</h2>
+                <div className="space-y-3">
+                  {question.options.map((option, index) => {
+                    const selected = quizAnswers[question.id] === String(index);
+                    return (
+                      <button
+                        type="button"
+                        key={option.text}
+                        onClick={() => setQuizAnswers((prev) => ({ ...prev, [question.id]: String(index) }))}
+                        className={`w-full min-h-[64px] rounded-[25px] border-2 px-5 py-3 text-left text-[18px] font-medium transition-all ${
+                          selected
+                            ? "border-transparent bg-gradient-to-r from-[#e73d5e] to-[#ff6f22] text-white font-extrabold shadow-[0_8px_20px_rgba(231,61,94,.12)]"
+                            : "border-[#2b1b18] bg-white text-[#2b1b18]"
+                        }`}
+                      >
+                        {option.text}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          {quizReady && (
+            <div className="mt-9 rounded-[28px] border-2 border-[#2b1b18] bg-white p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#ed3f60] to-[#ff7b24] text-white flex items-center justify-center shrink-0">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-[12px] uppercase tracking-[0.12em] font-extrabold text-[#e84962]">Your profile type</p>
+                  <h3 className="text-[24px] font-black mt-1">{archetypeInfo.name}</h3>
+                  <p className="text-[15px] text-[#7d6d67] mt-1 leading-relaxed">{archetypeInfo.tagline}</p>
                 </div>
               </div>
-
-              <p className="text-xs text-stone-600 mb-8 leading-relaxed max-w-sm font-medium">
-                {ARCHETYPES[calculatedArchetype].description}
-              </p>
-
-              <button
-                onClick={() => setStep("prompts")}
-                className="w-full py-4 bg-stone-950 hover:bg-stone-850 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
-              >
-                Continue with this profile type
-                <Check className="w-5 h-5" />
-              </button>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
-      </div>
+
+          <div className="h-7" />
+
+          <div className="fixed bottom-0 inset-x-0 border-t-2 border-[#2b1b18] bg-[#fffaf4]/95 backdrop-blur z-40">
+            <div className="max-w-md mx-auto px-5 pt-5 pb-[calc(18px+env(safe-area-inset-bottom,0px))]">
+              <button
+                type="button"
+                disabled={!quizReady || isSaving}
+                onClick={finish}
+                className="w-full h-[76px] rounded-[28px] bg-gradient-to-r from-[#f48596] to-[#ffad7a] text-white text-[23px] font-black shadow-[0_12px_28px_rgba(232,77,89,.16)] disabled:opacity-40 flex items-center justify-center gap-3"
+              >
+                <Sparkles className="w-6 h-6" />
+                {isSaving ? "Saving…" : "Meet my matches"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
