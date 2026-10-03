@@ -169,7 +169,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
 
   if (activeChat) {
     return (
-      <div className="app-safe-screen bg-[#fffaf4] min-h-[100dvh]">
+      <div className="bg-[#fffaf4] min-h-[100dvh] pt-[env(safe-area-inset-top,0px)]">
         <Chat
           match={activeChat.match}
           currentUser={currentUser}
