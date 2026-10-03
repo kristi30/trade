@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { generateChatReply } from "./src/serverChat";
 import { moderateImageDataUrl } from "./src/serverModeration";
+import { checkRateLimit } from "./src/serverRateLimit";
 
 dotenv.config();
 
@@ -14,6 +15,8 @@ app.use(express.json({ limit: "8mb" }));
 
 app.post("/api/moderate-image", async (req, res) => {
   try {
+    const rate = checkRateLimit(`moderation:${req.ip}`, 12, 60_000);
+    if (!rate.allowed) return res.status(429).json({ allowed: false, reason: "Too many requests" });
     const imageDataUrl = req.body?.imageDataUrl;
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
       return res.status(400).json({ allowed: false, reason: "imageDataUrl is required" });
@@ -31,6 +34,8 @@ app.post("/api/moderate-image", async (req, res) => {
 
 app.post("/api/chat-reply", async (req, res) => {
   try {
+    const rate = checkRateLimit(`chat:${req.ip}`, 20, 60_000);
+    if (!rate.allowed) return res.status(429).json({ error: "Too many requests" });
     const { matchedUser, currentUser, messages } = req.body || {};
     if (!matchedUser || !currentUser || !Array.isArray(messages)) {
       return res.status(400).json({ error: "matchedUser, currentUser and messages are required" });
