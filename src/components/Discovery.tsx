@@ -116,6 +116,7 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
 
       const filtered = normalized.filter((profile) => {
         if (blockedIds.includes(profile.id) || skippedIds.includes(profile.id) || sentLikeIds.has(profile.id)) return false;
+        if (profile.isPaused) return false;
         if (profile.age < minAge || profile.age > maxAge) return false;
 
         const userFlexible = !currentUser.gender || currentUser.gender === "unspecified";
