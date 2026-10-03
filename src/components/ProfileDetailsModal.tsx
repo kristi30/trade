@@ -1,147 +1,153 @@
-import { Profile } from "../types";
+import { useState } from "react";
+import { X, MapPin, Shield, Sparkles, Ruler, Flag, Lock, Camera, Mic } from "lucide-react";
+import { motion } from "motion/react";
 import { ARCHETYPES } from "../data";
-import { X, MapPin, User, MessageCircle, Shield, Sparkles } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { Profile } from "../types";
+import { formatHeight, getCompatibilitySummary } from "../productLogic";
 
 interface ProfileDetailsModalProps {
+  currentUser: Profile;
   partner: Profile;
   matchScore?: number;
   onClose: () => void;
   onUnmatch?: () => void;
   onBlock?: () => void;
+  onReport?: (reason: string) => void;
 }
 
+const reportReasons = ["Fake profile", "Harassment", "Inappropriate content", "Spam", "Safety concern", "Other"];
+
 export default function ProfileDetailsModal({
+  currentUser,
   partner,
   matchScore,
   onClose,
   onUnmatch,
   onBlock,
+  onReport,
 }: ProfileDetailsModalProps) {
+  const [showReport, setShowReport] = useState(false);
   const arch = ARCHETYPES[partner.archetype] || ARCHETYPES.idealist;
+  const compatibility = getCompatibilitySummary(currentUser, partner);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/40 backdrop-blur-xs">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-[#2b1b18]/45 backdrop-blur-sm">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="w-full max-w-md bg-white border border-stone-200/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full max-w-md bg-[#fffaf4] border-2 border-[#2b1b18] rounded-[34px] shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]"
       >
-        {/* Header Hero Area */}
-        <div className={`p-6 bg-gradient-to-tr ${arch.gradient} border-b border-stone-200/50 relative shrink-0`}>
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 p-2 bg-white/80 hover:bg-white border border-stone-200/40 hover:border-stone-300 rounded-xl text-stone-600 hover:text-stone-900 transition-all cursor-pointer shadow-xs"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4" />
+        <div className={`p-6 bg-gradient-to-tr ${arch.gradient} border-b border-[#eaded8] relative shrink-0`}>
+          <button onClick={onClose} className="absolute top-4 right-4 w-11 h-11 bg-white/85 rounded-full flex items-center justify-center border border-[#eaded8]">
+            <X className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-1.5 mb-2">
-            <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-md bg-white border border-stone-200/80 ${arch.textColor.replace('-400', '-600')} shadow-xs`}>
+          <div className="flex flex-wrap items-center gap-2 mb-3 pr-12">
+            <span className="text-[11px] font-black uppercase px-3 py-1.5 rounded-full bg-white border border-[#eaded8] text-[#d9445e]">
               {arch.name}
             </span>
-            {matchScore && (
-              <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-md bg-rose-50 border border-rose-200 text-rose-600 shadow-xs">
-                {matchScore}% Vibe Sync
-              </span>
+            <span className="text-[11px] font-black uppercase px-3 py-1.5 rounded-full bg-[#e84962] text-white">
+              {matchScore || compatibility.score}% match
+            </span>
+            {(partner.isAI || partner.id.startsWith("seed_")) && (
+              <span className="text-[11px] font-black uppercase px-3 py-1.5 rounded-full bg-white border border-[#eaded8]">Demo</span>
             )}
           </div>
 
-          <h2 className="text-2xl font-black font-display tracking-tight text-stone-900 mb-1">
-            {partner.name}, <span className="font-semibold text-stone-600">{partner.age}</span>
-          </h2>
-
-          <div className="flex items-center gap-1 text-xs text-stone-500 font-medium">
-            <MapPin className="w-3.5 h-3.5 text-rose-500" />
-            <span>Resides in {partner.location}</span>
+          <h2 className="text-[30px] font-black tracking-[-0.04em]">{partner.name}, {partner.age}</h2>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[15px] text-[#75655f] font-semibold">
+            <span className="inline-flex items-center gap-1"><MapPin className="w-4 h-4 text-[#e84962]" /> {partner.location}</span>
+            {partner.heightCm && <span className="inline-flex items-center gap-1"><Ruler className="w-4 h-4 text-[#e84962]" /> {formatHeight(partner.heightCm)}</span>}
           </div>
         </div>
 
-        {/* Scrollable Profile Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#FCFAF7] scrollbar-none">
-          {/* Tagline */}
-          <div className="border-l-2 border-stone-300 pl-4 italic text-stone-600 text-xs font-medium leading-relaxed">
-            "{arch.tagline}"
+        <div className="flex-1 overflow-y-auto p-5 space-y-5 scrollbar-none">
+          <div className="rounded-[24px] border-2 border-[#2b1b18] bg-white p-4">
+            <p className="text-[12px] uppercase tracking-widest font-black text-[#e84962]">Profile type</p>
+            <h3 className="text-[22px] font-black mt-1">{arch.name}</h3>
+            <p className="text-[14px] text-[#75655f] mt-2 leading-relaxed">{arch.description}</p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {arch.traits.map((trait) => <span key={trait} className="rounded-full bg-[#fde3e8] px-3 py-1 text-[12px] font-extrabold text-[#d9445e]">{trait}</span>)}
+            </div>
           </div>
 
-          {/* About/Bio section */}
           <div>
-            <h4 className="text-[10px] uppercase tracking-widest font-black text-stone-400 mb-2">My Spark Bio</h4>
-            <p className="text-xs text-stone-700 leading-relaxed font-medium bg-white border border-stone-200/60 rounded-2xl p-4 shadow-2xs">
-              {partner.bio}
+            <h4 className="text-[12px] uppercase tracking-widest font-black text-[#8b7d76] mb-2">About</h4>
+            <p className="text-[16px] leading-relaxed rounded-[24px] border-2 border-[#2b1b18] bg-white p-4">
+              {partner.bio || "Still keeping a little mystery."}
             </p>
           </div>
 
-          {/* Traits Section */}
           <div>
-            <h4 className="text-[10px] uppercase tracking-widest font-black text-stone-400 mb-2">Personality Signatures</h4>
-            <div className="flex flex-wrap gap-1.5">
-              {arch.traits.map((trait) => (
-                <span
-                  key={trait}
-                  className="text-xs px-3 py-1 bg-white border border-stone-200/80 rounded-full font-semibold text-stone-700 shadow-2xs"
-                >
-                  ✨ {trait}
-                </span>
+            <h4 className="text-[12px] uppercase tracking-widest font-black text-[#8b7d76] mb-2">Why you fit</h4>
+            <div className="space-y-2">
+              {compatibility.reasons.slice(0, 4).map((reason) => (
+                <div key={reason} className="rounded-[20px] bg-white border border-[#eaded8] px-4 py-3 text-[14px] leading-relaxed">
+                  <Sparkles className="w-4 h-4 text-[#e84962] inline mr-2" />{reason}
+                </div>
               ))}
             </div>
           </div>
 
-          {/* Archetype Description */}
-          <div className="bg-stone-50 border border-stone-200/60 rounded-2xl p-4 space-y-2">
-            <h5 className="text-[10px] font-black text-stone-800 flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>About {arch.name} Archetype</span>
-            </h5>
-            <p className="text-[11px] text-stone-500 leading-relaxed font-medium">
-              {arch.description}
-            </p>
-          </div>
-
-          {/* Spark Prompts Section */}
           {partner.sparkPrompts && Object.keys(partner.sparkPrompts).length > 0 && (
-            <div className="space-y-4">
-              <h4 className="text-[10px] uppercase tracking-widest font-black text-stone-400">Spark Prompts</h4>
+            <div className="space-y-3">
+              <h4 className="text-[12px] uppercase tracking-widest font-black text-[#8b7d76]">Prompts</h4>
               {Object.entries(partner.sparkPrompts).map(([question, answer]) => (
-                <div key={question} className="bg-white border border-stone-200/60 rounded-2xl p-4 shadow-2xs space-y-1.5">
-                  <p className="text-[10px] font-extrabold text-stone-400 uppercase tracking-wider">{question}</p>
-                  <p className="text-xs text-stone-850 leading-relaxed font-medium font-serif italic">
-                    "{answer}"
-                  </p>
+                <div key={question} className="bg-white border-2 border-[#2b1b18] rounded-[22px] p-4">
+                  <p className="text-[12px] font-black text-[#e84962]">{question}</p>
+                  <p className="text-[15px] mt-1 leading-relaxed">“{answer}”</p>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Safety Warning */}
-          <div className="p-3 bg-stone-50 border border-stone-200/50 rounded-xl text-center text-[9px] text-stone-400 font-medium">
-            🛡️ blindSpark maintains complete anonymity. No pictures or visual uploads can be requested.
+          <div className="rounded-[24px] bg-[#fde3e8] p-4">
+            <h4 className="font-black text-[16px] mb-3">Conversation unlocks</h4>
+            <div className="space-y-2 text-[13px]">
+              <div className="flex gap-2"><Lock className="w-4 h-4 text-[#d9445e] shrink-0" /> Start with personality only.</div>
+              <div className="flex gap-2"><Sparkles className="w-4 h-4 text-[#d9445e] shrink-0" /> 15 texts: deeper profile prompt.</div>
+              <div className="flex gap-2"><Camera className="w-4 h-4 text-[#d9445e] shrink-0" /> 30 / 50 / 80 texts: 1 photo / 2 photos / unlimited.</div>
+              <div className="flex gap-2"><Mic className="w-4 h-4 text-[#d9445e] shrink-0" /> 100 texts: voice notes.</div>
+            </div>
+          </div>
+
+          {showReport && (
+            <div className="rounded-[24px] border-2 border-[#2b1b18] bg-white p-4">
+              <h4 className="font-black text-[16px] mb-3">Why are you reporting this profile?</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {reportReasons.map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => { onReport?.(reason); setShowReport(false); }}
+                    className="rounded-[16px] border border-[#eaded8] bg-[#fffaf4] px-3 py-3 text-[12px] font-bold text-left"
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-[20px] bg-white border border-[#eaded8] p-3 text-[11px] text-[#806f68] leading-relaxed">
+            Safety first: never share passwords, financial details, or private codes. Meet in public and use Block/Report whenever something feels wrong.
           </div>
         </div>
 
-        {/* Action Button Panel at bottom */}
-        <div className="p-4 bg-white border-t border-stone-200/60 flex gap-2 shrink-0">
+        <div className="p-4 bg-white border-t border-[#eaded8] grid grid-cols-3 gap-2 shrink-0">
           {onUnmatch && (
-            <button
-              onClick={onUnmatch}
-              className="flex-1 py-2.5 px-4 border border-rose-200/80 hover:border-rose-400 text-rose-600 hover:bg-rose-50/30 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Cancel Match</span>
+            <button onClick={onUnmatch} className="py-3 px-2 border-2 border-[#2b1b18] rounded-[18px] font-bold text-[12px] flex items-center justify-center gap-1">
+              <X className="w-4 h-4" /> Unmatch
             </button>
           )}
-
           {onBlock && (
-            <button
-              onClick={onBlock}
-              className="flex-1 py-2.5 px-4 bg-stone-50 hover:bg-stone-100 text-stone-500 hover:text-stone-800 border border-stone-200/60 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Block Profile</span>
+            <button onClick={onBlock} className="py-3 px-2 border-2 border-[#2b1b18] rounded-[18px] font-bold text-[12px] flex items-center justify-center gap-1">
+              <Shield className="w-4 h-4" /> Block
             </button>
           )}
+          <button onClick={() => setShowReport((value) => !value)} className="py-3 px-2 border-2 border-[#e84962] text-[#d9445e] rounded-[18px] font-bold text-[12px] flex items-center justify-center gap-1">
+            <Flag className="w-4 h-4" /> Report
+          </button>
         </div>
       </motion.div>
     </div>
