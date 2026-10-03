@@ -5,7 +5,7 @@ export interface ArchetypeDetails {
   name: string;
   tagline: string;
   description: string;
-  gradient: string; // Tailwind class string
+  gradient: string;
   textColor: string;
   sparkColor: string;
   traits: string[];
@@ -15,6 +15,7 @@ export interface Profile {
   id: string;
   name: string;
   age: number;
+  heightCm?: number;
   gender: string;
   lookingFor: string;
   location: string;
@@ -25,22 +26,32 @@ export interface Profile {
   isAI?: boolean;
   latitude?: number;
   longitude?: number;
+  createdAt?: any;
+  updatedAt?: any;
+  ageVerified?: boolean;
 }
 
 export interface Match {
   id: string;
-  users: string[]; // Two user IDs
-  createdAt: any; // Firestore Timestamp
-  score: number; // 0-100 Compatibility Score
+  users: string[];
+  createdAt: any;
+  score: number;
   unlocked?: boolean;
+  isDemo?: boolean;
+  readBy?: Record<string, any>;
+  typing?: Record<string, boolean>;
 }
 
 export interface Message {
   id: string;
   senderId: string;
   text: string;
-  createdAt: any; // Firestore Timestamp
+  createdAt: any;
   imageUrl?: string;
+  audioUrl?: string;
+  replyToId?: string;
+  replyToText?: string;
+  reaction?: string;
 }
 
 export interface QuizQuestion {
@@ -50,4 +61,19 @@ export interface QuizQuestion {
     text: string;
     archetype: ArchetypeId;
   }[];
+}
+
+export interface LikeRecord {
+  fromUserId: string;
+  toUserId: string;
+  createdAt: any;
+}
+
+export interface ReportRecord {
+  reporterId: string;
+  reportedUserId: string;
+  matchId?: string;
+  reason: string;
+  details?: string;
+  createdAt: any;
 }
