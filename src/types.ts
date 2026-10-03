@@ -30,6 +30,7 @@ export interface Profile {
   updatedAt?: any;
   ageVerified?: boolean;
   verificationStatus?: "self_confirmed" | "pending" | "verified" | "rejected";
+  isPaused?: boolean;
 }
 
 export interface Match {
