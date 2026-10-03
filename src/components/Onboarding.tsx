@@ -125,7 +125,7 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
   const quizReady = Object.keys(quizAnswers).length === QUIZ_QUESTIONS.length;
 
   return (
-    <div className="min-h-[100dvh] bg-[#fffaf4] text-[#2b1b18] font-sans pb-[122px]">
+    <div className="min-h-[100dvh] bg-[#fffaf4] text-[#2b1b18] font-sans pb-[calc(150px+env(safe-area-inset-bottom,0px))] overflow-visible">
       {step === 1 ? (
         <div className="max-w-md mx-auto px-5 pt-8">
           <div className="flex items-center gap-4 mb-5">
@@ -268,7 +268,7 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
             </div>
           )}
 
-          <div className="h-7" />
+          <div className="h-24" />
 
           <div className="fixed bottom-0 inset-x-0 border-t-2 border-[#2b1b18] bg-[#fffaf4]/95 backdrop-blur z-40">
             <div className="max-w-md mx-auto px-5 pt-5 pb-[calc(18px+env(safe-area-inset-bottom,0px))]">
