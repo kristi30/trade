@@ -132,7 +132,27 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
     const next = Array.from(new Set([...blockedIds, partnerId]));
     setBlockedIds(next);
     localStorage.setItem(`blindspark_blocked_${currentUser.id}`, JSON.stringify(next));
+
+    if (!isLocalMode) {
+      await setDoc(doc(db, "profiles", currentUser.id, "blocks", partnerId), {
+        blockedUserId: partnerId,
+        createdAt: serverTimestamp(),
+      }).catch(() => undefined);
+    }
+
     await handleUnmatch(matchId);
+  };
+
+  const togglePauseDiscovery = async () => {
+    const updated: Profile = { ...currentUser, isPaused: !currentUser.isPaused };
+    localStorage.setItem(`blindspark_profile_${currentUser.id}`, JSON.stringify(updated));
+    if (!isLocalMode) {
+      await setDoc(doc(db, "profiles", currentUser.id), {
+        isPaused: updated.isPaused,
+        updatedAt: serverTimestamp(),
+      }, { merge: true }).catch(() => undefined);
+    }
+    onProfileUpdate(updated);
   };
 
   const saveProfile = async (event: FormEvent) => {
@@ -412,6 +432,18 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
               </div>
 
               <p className="text-[16px] text-[#7b6c66] mt-6 leading-relaxed">Distances are simulated unless you saved coordinates in your profile.</p>
+            </div>
+
+            <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
+              <h2 className="text-[23px] font-black mb-3">Privacy</h2>
+              <p className="text-[15px] text-[#7b6c66] leading-relaxed mb-4">
+                {currentUser.isPaused
+                  ? "Your profile is hidden from real Discovery. Your existing matches can still message you."
+                  : "Your profile can appear to compatible real users."}
+              </p>
+              <button onClick={togglePauseDiscovery} className="w-full h-14 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold">
+                {currentUser.isPaused ? "Resume discovery" : "Pause my profile"}
+              </button>
             </div>
 
             <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
