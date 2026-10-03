@@ -8,6 +8,8 @@ import {
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
 } from "firebase/auth";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
@@ -59,6 +61,16 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState("");
 
   useEffect(() => {
+    void getRedirectResult(auth).catch((error: any) => {
+      const code = error?.code || "";
+      const host = window.location.hostname;
+      if (code.includes("unauthorized-domain")) {
+        setAuthMessage(`Google sign-in is blocked for ${host}. Add this host to Firebase Authentication → Settings → Authorized domains.`);
+      } else if (code && !code.includes("redirect-cancelled-by-user")) {
+        setAuthMessage(error?.message?.replace("Firebase: ", "") || "Google sign-in could not be completed.");
+      }
+    });
+
     return onAuthStateChanged(auth, async (authUser) => {
       setLoading(true);
       if (authUser) {
@@ -106,13 +118,43 @@ export default function App() {
     }
   };
 
+  const useRedirectAuth = () => {
+    if (typeof window === "undefined") return false;
+    const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      (navigator as any).standalone === true;
+    return mobile || standalone;
+  };
+
   const signInGoogle = async () => {
     setAuthBusy(true);
     setAuthMessage("");
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+
+      if (useRedirectAuth()) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+
+      await signInWithPopup(auth, provider);
     } catch (error: any) {
-      setAuthMessage(error?.message?.replace("Firebase: ", "") || "Google sign-in failed.");
+      const code = error?.code || "";
+      const host = window.location.hostname;
+      if (code.includes("unauthorized-domain")) {
+        setAuthMessage(`Google sign-in is blocked for ${host}. Add this host to Firebase Authentication → Settings → Authorized domains.`);
+      } else if (code.includes("popup-blocked") || code.includes("popup-closed-by-user")) {
+        try {
+          await signInWithRedirect(auth, provider);
+          return;
+        } catch (redirectError: any) {
+          setAuthMessage(redirectError?.message?.replace("Firebase: ", "") || "Google sign-in failed.");
+        }
+      } else {
+        setAuthMessage(error?.message?.replace("Firebase: ", "") || "Google sign-in failed.");
+      }
     } finally {
       setAuthBusy(false);
     }
@@ -125,9 +167,21 @@ export default function App() {
       const provider = new OAuthProvider("apple.com");
       provider.addScope("email");
       provider.addScope("name");
+
+      if (useRedirectAuth()) {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+
       await signInWithPopup(auth, provider);
     } catch (error: any) {
-      setAuthMessage(error?.message?.replace("Firebase: ", "") || "Apple sign-in failed. Make sure Apple is enabled in Firebase Authentication.");
+      const code = error?.code || "";
+      const host = window.location.hostname;
+      if (code.includes("unauthorized-domain")) {
+        setAuthMessage(`Apple sign-in is blocked for ${host}. Add this host to Firebase Authentication → Settings → Authorized domains.`);
+      } else {
+        setAuthMessage(error?.message?.replace("Firebase: ", "") || "Apple sign-in failed. Make sure Apple is enabled in Firebase Authentication.");
+      }
     } finally {
       setAuthBusy(false);
     }
@@ -314,6 +368,9 @@ export default function App() {
                   Apple
                 </button>
               </div>
+              <p className="mt-2 text-[11px] text-[#8a7a73] leading-relaxed">
+                On iPhone, Google/Apple sign-in uses a full-page redirect instead of a popup so it works in Safari and Home Screen mode.
+              </p>
 
               {authMode === "signin" && (
                 <button onClick={resetPassword} className="w-full mt-3 text-[#e84962] font-bold text-[14px]">Forgot password?</button>
