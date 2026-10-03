@@ -1,7 +1,15 @@
-import { useEffect, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { FormEvent, useEffect, useState } from "react";
+import {
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
 import { deleteDoc, doc, getDoc } from "firebase/firestore";
-import { Heart, Info, Sparkles } from "lucide-react";
+import { Heart, Info, LockKeyhole, Mail, Sparkles, UserRound } from "lucide-react";
 import { auth, db } from "./lib/firebase";
 import { Profile } from "./types";
 import Onboarding from "./components/Onboarding";
@@ -41,6 +49,11 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authMode, setAuthMode] = useState<"closed" | "signin" | "signup">("closed");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (authUser) => {
@@ -74,6 +87,45 @@ export default function App() {
     const local = createLocalUser();
     setUser(local);
     setProfile(readCachedProfile(local.uid));
+  };
+
+  const submitEmailAuth = async (event: FormEvent) => {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      if (authMode === "signup") await createUserWithEmailAndPassword(auth, email.trim(), password);
+      else await signInWithEmailAndPassword(auth, email.trim(), password);
+    } catch (error: any) {
+      setAuthMessage(error?.message?.replace("Firebase: ", "") || "Could not continue with that account.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signInGoogle = async () => {
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (error: any) {
+      setAuthMessage(error?.message?.replace("Firebase: ", "") || "Google sign-in failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!email.trim()) {
+      setAuthMessage("Enter your email first.");
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setAuthMessage("Password reset email sent.");
+    } catch (error: any) {
+      setAuthMessage(error?.message?.replace("Firebase: ", "") || "Could not send reset email.");
+    }
   };
 
   const handleOnboardingComplete = (newProfile: Profile) => {
@@ -124,7 +176,7 @@ export default function App() {
               </div>
               <div className="text-[28px] font-black tracking-[-0.045em]">BlindSpark</div>
             </div>
-            <span className="rounded-full bg-[#fff1e9] px-4 py-2 text-[16px] font-bold">Demo – 18+</span>
+            <span className="rounded-full bg-[#fff1e9] px-4 py-2 text-[16px] font-bold">18+</span>
           </div>
 
           <div className="relative flex justify-center mb-9">
@@ -137,7 +189,7 @@ export default function App() {
             Fall for the <span className="text-[#ee3c55]">person</span>, not the picture.
           </h1>
           <p className="text-[20px] leading-[1.5] text-[#766761] mb-7">
-            Answer a few honest questions, meet demo personalities, and see who truly fits.
+            Match on personality first, then unlock more of each other as the conversation grows.
           </p>
 
           <button
@@ -146,20 +198,76 @@ export default function App() {
             className="w-full h-[72px] rounded-[28px] bg-gradient-to-r from-[#e83e5d] to-[#ff6f20] text-white text-[22px] font-black flex items-center justify-center gap-3 shadow-[0_12px_28px_rgba(232,62,93,.22)]"
           >
             <Heart className="w-7 h-7" />
-            Try BlindSpark on this iPhone
+            Try the local demo
           </button>
 
-          <button
-            type="button"
-            onClick={startLocalDemo}
-            className="w-full h-[68px] mt-4 rounded-[27px] border-2 border-[#2b1b18] bg-white text-[19px] font-extrabold"
-          >
-            Try BlindSpark — no account needed
-          </button>
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <button
+              type="button"
+              onClick={() => { setAuthMode("signup"); setAuthMessage(""); }}
+              className="h-[62px] rounded-[24px] border-2 border-[#2b1b18] bg-white text-[17px] font-extrabold flex items-center justify-center gap-2"
+            >
+              <UserRound className="w-5 h-5" /> Create account
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAuthMode("signin"); setAuthMessage(""); }}
+              className="h-[62px] rounded-[24px] border-2 border-[#2b1b18] bg-white text-[17px] font-extrabold flex items-center justify-center gap-2"
+            >
+              <LockKeyhole className="w-5 h-5" /> Sign in
+            </button>
+          </div>
 
-          <div className="mt-5 rounded-[28px] bg-[#fde3e8] px-5 py-5 flex gap-3 text-[16px] leading-relaxed">
+          {authMode !== "closed" && (
+            <div className="mt-5 rounded-[28px] border-2 border-[#2b1b18] bg-white p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-[24px] font-black">{authMode === "signup" ? "Create your account" : "Welcome back"}</h2>
+                <button onClick={() => setAuthMode("closed")} className="text-[#8a7a73] font-black">Close</button>
+              </div>
+
+              <form onSubmit={submitEmailAuth} className="space-y-3">
+                <label className="relative block">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#e84962]" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email"
+                    className="w-full h-14 rounded-[20px] border-2 border-[#2b1b18] pl-12 pr-4 bg-[#fffaf4] outline-none"
+                  />
+                </label>
+                <label className="relative block">
+                  <LockKeyhole className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#e84962]" />
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password"
+                    className="w-full h-14 rounded-[20px] border-2 border-[#2b1b18] pl-12 pr-4 bg-[#fffaf4] outline-none"
+                  />
+                </label>
+                <button disabled={authBusy} className="w-full h-14 rounded-[20px] bg-gradient-to-r from-[#e84962] to-[#ef7938] text-white text-[18px] font-black disabled:opacity-50">
+                  {authBusy ? "One moment…" : authMode === "signup" ? "Create account" : "Sign in"}
+                </button>
+              </form>
+
+              <button onClick={signInGoogle} disabled={authBusy} className="w-full h-14 rounded-[20px] border-2 border-[#2b1b18] mt-3 font-extrabold bg-white">
+                Continue with Google
+              </button>
+
+              {authMode === "signin" && (
+                <button onClick={resetPassword} className="w-full mt-3 text-[#e84962] font-bold text-[14px]">Forgot password?</button>
+              )}
+              {authMessage && <p className="mt-3 text-[13px] text-[#7a6962] leading-relaxed">{authMessage}</p>}
+            </div>
+          )}
+
+          <div className="mt-5 rounded-[28px] bg-[#fde3e8] px-5 py-5 flex gap-3 text-[15px] leading-relaxed">
             <Info className="w-6 h-6 text-[#e84962] shrink-0 mt-0.5" />
-            <p><strong>Accounts are not available.</strong> There is no sign in, no Google login, and no server. This is a local demo; everything stays on this device.</p>
+            <p><strong>Demo profiles are always labeled.</strong> Real accounts only match when both people Spark each other.</p>
           </div>
         </main>
       </div>
