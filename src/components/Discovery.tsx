@@ -4,8 +4,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
   serverTimestamp,
   setDoc,
+  where,
 } from "firebase/firestore";
 import {
   AlertCircle,
@@ -54,6 +56,7 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
   const [showMatchModal, setShowMatchModal] = useState<{ match: Match; partner: Profile } | null>(null);
   const [dragX, setDragX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [sentLikeIds, setSentLikeIds] = useState<Set<string>>(new Set());
 
   const isLocalMode = !currentUser.id || currentUser.id.startsWith("local_");
   const minAge = Number(localStorage.getItem(`blindspark_min_age_${currentUser.id}`) || "18");
@@ -76,11 +79,20 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
         } as Profile));
       } else {
         try {
-          const snapshot = await getDocs(collection(db, "profiles"));
-          snapshot.forEach((item) => {
+          const [profilesSnapshot, likesSnapshot] = await Promise.all([
+            getDocs(collection(db, "profiles")),
+            getDocs(query(collection(db, "likes"), where("fromUserId", "==", currentUser.id))),
+          ]);
+          profilesSnapshot.forEach((item) => {
             const profile = item.data() as Profile;
             if (profile.id !== currentUser.id && !profile.isAI) fetched.push(profile);
           });
+          const liked = new Set<string>();
+          likesSnapshot.forEach((item) => {
+            const data = item.data();
+            if (data.toUserId) liked.add(String(data.toUserId));
+          });
+          setSentLikeIds(liked);
         } catch (error) {
           console.warn("Could not load real profiles:", error);
         }
@@ -103,7 +115,7 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
       });
 
       const filtered = normalized.filter((profile) => {
-        if (blockedIds.includes(profile.id) || skippedIds.includes(profile.id)) return false;
+        if (blockedIds.includes(profile.id) || skippedIds.includes(profile.id) || sentLikeIds.has(profile.id)) return false;
         if (profile.age < minAge || profile.age > maxAge) return false;
 
         const userFlexible = !currentUser.gender || currentUser.gender === "unspecified";
@@ -204,6 +216,7 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
       createdAt: serverTimestamp(),
     });
 
+    setSentLikeIds((previous) => new Set([...previous, partner.id]));
     const reciprocal = await getDoc(doc(db, "likes", reciprocalId));
     if (reciprocal.exists()) {
       await createMatch(partner, false);
