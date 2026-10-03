@@ -17,6 +17,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { db } from "../lib/firebase";
+import { enablePushNotifications } from "../lib/push";
 import { ARCHETYPES, QUIZ_QUESTIONS, SEED_PROFILES } from "../data";
 import { Match, Message, Profile } from "../types";
 import { formatHeight } from "../productLogic";
@@ -166,13 +167,13 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
   };
 
   const requestNotifications = async () => {
-    if (!("Notification" in window)) {
-      alert("Notifications are not supported in this browser.");
-      return;
+    try {
+      const result = await enablePushNotifications();
+      alert(result.message);
+    } catch (error) {
+      console.warn("Notification setup failed:", error);
+      alert("Notification setup could not be completed on this device.");
     }
-    const permission = await Notification.requestPermission();
-    localStorage.setItem("blindspark_notifications", permission);
-    alert(permission === "granted" ? "Notifications enabled." : "Notifications were not enabled.");
   };
 
   const handleReport = async (partnerId: string, matchId: string, reason: string) => {
@@ -392,7 +393,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
 
             <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
               <h2 className="text-[23px] font-black mb-3">Notifications</h2>
-              <p className="text-[15px] text-[#7b6c66] leading-relaxed mb-4">Get an alert when a delayed demo reply arrives while this web app is open or in the background. Full push delivery for a closed app still requires production push credentials.</p>
+              <p className="text-[15px] text-[#7b6c66] leading-relaxed mb-4">Get alerts for new messages. Browser alerts work immediately; closed-app push activates when Firebase Cloud Messaging and the VAPID key are configured.</p>
               <button onClick={requestNotifications} className="w-full h-14 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold flex items-center justify-center gap-2">
                 <Bell className="w-5 h-5 text-[#e84962]" /> Enable notifications
               </button>
