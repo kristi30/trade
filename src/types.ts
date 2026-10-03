@@ -29,6 +29,7 @@ export interface Profile {
   createdAt?: any;
   updatedAt?: any;
   ageVerified?: boolean;
+  verificationStatus?: "self_confirmed" | "pending" | "verified" | "rejected";
 }
 
 export interface Match {
