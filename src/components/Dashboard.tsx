@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { collection, deleteDoc, doc, getDoc, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 import {
   BarChart3,
+  Bell,
   Compass,
   Heart,
   LogOut,
@@ -9,6 +10,7 @@ import {
   MessageCircle,
   Pencil,
   RefreshCw,
+  Ruler,
   Settings,
   Smartphone,
   UserRound,
@@ -17,6 +19,7 @@ import {
 import { db } from "../lib/firebase";
 import { ARCHETYPES, QUIZ_QUESTIONS, SEED_PROFILES } from "../data";
 import { Match, Message, Profile } from "../types";
+import { formatHeight } from "../productLogic";
 import BlindArt from "./BlindArt";
 import Chat from "./Chat";
 import Discovery from "./Discovery";
@@ -54,6 +57,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(currentUser.name);
   const [editAge, setEditAge] = useState(String(currentUser.age));
+  const [editHeight, setEditHeight] = useState(currentUser.heightCm ? String(currentUser.heightCm) : "");
   const [editLocation, setEditLocation] = useState(currentUser.location);
   const [editBio, setEditBio] = useState(currentUser.bio || "");
   const [maxDistance, setMaxDistance] = useState(() => Number(localStorage.getItem(`blindspark_max_distance_${currentUser.id}`) || "60"));
@@ -134,6 +138,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
       ...currentUser,
       name: editName.trim() || currentUser.name,
       age: Math.max(18, Number(editAge) || currentUser.age),
+      heightCm: Math.min(230, Math.max(120, Number(editHeight) || currentUser.heightCm || 170)),
       location: editLocation.trim() || currentUser.location,
       bio: editBio.trim(),
     };
@@ -160,6 +165,40 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
     setVersion((n) => n + 1);
   };
 
+  const requestNotifications = async () => {
+    if (!("Notification" in window)) {
+      alert("Notifications are not supported in this browser.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    localStorage.setItem("blindspark_notifications", permission);
+    alert(permission === "granted" ? "Notifications enabled." : "Notifications were not enabled.");
+  };
+
+  const handleReport = async (partnerId: string, matchId: string, reason: string) => {
+    const report = {
+      reporterId: currentUser.id,
+      reportedUserId: partnerId,
+      matchId,
+      reason,
+      createdAt: new Date().toISOString(),
+    };
+    const key = `blindspark_reports_${currentUser.id}`;
+    const existing = JSON.parse(localStorage.getItem(key) || "[]");
+    localStorage.setItem(key, JSON.stringify([...existing, report]));
+
+    if (!isLocalMode) {
+      await addDoc(collection(db, "reports"), {
+        reporterId: currentUser.id,
+        reportedUserId: partnerId,
+        matchId,
+        reason,
+        createdAt: serverTimestamp(),
+      }).catch(() => undefined);
+    }
+    alert("Report submitted. You can also block or unmatch this profile.");
+  };
+
   const personalityAnswers = DIMENSIONS.map(([id, label]) => {
     const question = QUIZ_QUESTIONS.find((q) => q.id === id);
     const selected = currentUser.quizAnswers?.[id];
@@ -179,11 +218,13 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
         />
         {selectedPartner && (
           <ProfileDetailsModal
+            currentUser={currentUser}
             partner={selectedPartner.partner}
             matchScore={selectedPartner.matchScore}
             onClose={() => setSelectedPartner(null)}
             onUnmatch={() => void handleUnmatch(selectedPartner.matchId)}
             onBlock={() => void handleBlock(selectedPartner.partner.id, selectedPartner.matchId)}
+            onReport={(reason) => void handleReport(selectedPartner.partner.id, selectedPartner.matchId, reason)}
           />
         )}
       </div>
@@ -226,7 +267,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
                         <h3 className="text-[23px] font-black">{partner.name}, {partner.age}</h3>
                         <span className="text-[#e84962] text-[17px] font-black">{match.score}%</span>
                       </div>
-                      <p className="text-[19px] text-[#7b6c66] mt-2">Say hello (demo chat)</p>
+                      <p className="text-[19px] text-[#7b6c66] mt-2">{match.isDemo ? "Say hello (demo chat)" : "You both Sparked · say hello"}</p>
                     </div>
                     <MessageCircle className="w-9 h-9 text-[#d94a61] shrink-0" />
                   </button>
@@ -241,7 +282,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
             <div className="flex justify-between items-start mb-5">
               <div>
                 <h1 className="text-[32px] font-black tracking-[-0.045em]">You</h1>
-                <p className="text-[16px] text-[#7b6c66] mt-1">Only stored on this device</p>
+                <p className="text-[16px] text-[#7b6c66] mt-1">{isLocalMode ? "Only stored on this device" : "Synced to your account"}</p>
               </div>
               <button onClick={() => setEditing((v) => !v)} className="rounded-[24px] border-2 border-[#2b1b18] bg-white px-5 py-3 flex items-center gap-2 font-extrabold text-[17px]"><Pencil className="w-5 h-5" /> Edit</button>
             </div>
@@ -249,7 +290,10 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
             {editing ? (
               <form onSubmit={saveProfile} className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 space-y-4 mb-6">
                 <input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Name" />
-                <input value={editAge} onChange={(e) => setEditAge(e.target.value.replace(/\D/g, ""))} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Age" />
+                <div className="grid grid-cols-2 gap-3">
+                  <input value={editAge} onChange={(e) => setEditAge(e.target.value.replace(/\D/g, ""))} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Age" />
+                  <input value={editHeight} onChange={(e) => setEditHeight(e.target.value.replace(/\D/g, ""))} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Height cm" />
+                </div>
                 <input value={editLocation} onChange={(e) => setEditLocation(e.target.value)} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="City" />
                 <textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} className="w-full rounded-2xl border-2 border-[#2b1b18] px-4 py-3 text-[17px]" rows={3} placeholder="About you" />
                 <button className="w-full h-14 rounded-2xl bg-gradient-to-r from-[#e84962] to-[#ef7938] text-white font-black text-[18px]">Save</button>
@@ -258,7 +302,10 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
               <>
                 <BlindArt className="w-full h-[205px] rounded-[34px]" />
                 <h2 className="text-[38px] font-black tracking-[-0.045em] mt-6">{currentUser.name}, {currentUser.age}</h2>
-                <div className="flex items-center gap-2 mt-2 text-[#776761] text-[19px]"><MapPin className="w-5 h-5" /> {currentUser.location}</div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2 text-[#776761] text-[19px]">
+                  <span className="inline-flex items-center gap-2"><MapPin className="w-5 h-5" /> {currentUser.location}</span>
+                  {currentUser.heightCm && <span className="inline-flex items-center gap-2"><Ruler className="w-5 h-5" /> {formatHeight(currentUser.heightCm)}</span>}
+                </div>
                 {currentUser.bio && <p className="text-[19px] mt-5 leading-relaxed">{currentUser.bio}</p>}
                 <div className="mt-5 inline-flex rounded-full bg-[#fde3e8] px-4 py-2 text-[#d9445e] font-extrabold">Profile type: {archetype.name}</div>
               </>
@@ -297,7 +344,7 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
               ))}
             </div>
 
-            <h2 className="text-[25px] leading-tight font-black mt-9 mb-6">Where you overlap with the demo pool</h2>
+            <h2 className="text-[25px] leading-tight font-black mt-9 mb-6">{isLocalMode ? "Where you overlap with the demo pool" : "Your personality balance"}</h2>
             <div className="space-y-5">
               {DIMENSIONS.map(([, label], index) => (
                 <div key={label}>
@@ -341,6 +388,14 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
               </div>
 
               <p className="text-[16px] text-[#7b6c66] mt-6 leading-relaxed">Distances are simulated unless you saved coordinates in your profile.</p>
+            </div>
+
+            <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
+              <h2 className="text-[23px] font-black mb-3">Notifications</h2>
+              <p className="text-[15px] text-[#7b6c66] leading-relaxed mb-4">Get an alert when a delayed demo reply arrives while this web app is open or in the background. Full push delivery for a closed app still requires production push credentials.</p>
+              <button onClick={requestNotifications} className="w-full h-14 rounded-[22px] border-2 border-[#2b1b18] bg-white font-extrabold flex items-center justify-center gap-2">
+                <Bell className="w-5 h-5 text-[#e84962]" /> Enable notifications
+              </button>
             </div>
 
             <div className="rounded-[30px] border-2 border-[#2b1b18] bg-white p-5 mt-5">
@@ -390,11 +445,13 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
 
       {selectedPartner && (
         <ProfileDetailsModal
+          currentUser={currentUser}
           partner={selectedPartner.partner}
           matchScore={selectedPartner.matchScore}
           onClose={() => setSelectedPartner(null)}
           onUnmatch={() => void handleUnmatch(selectedPartner.matchId)}
           onBlock={() => void handleBlock(selectedPartner.partner.id, selectedPartner.matchId)}
+          onReport={(reason) => void handleReport(selectedPartner.partner.id, selectedPartner.matchId, reason)}
         />
       )}
     </div>
