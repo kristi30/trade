@@ -59,6 +59,8 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
   const [editName, setEditName] = useState(currentUser.name);
   const [editAge, setEditAge] = useState(String(currentUser.age));
   const [editHeight, setEditHeight] = useState(currentUser.heightCm ? String(currentUser.heightCm) : "");
+  const [editGender, setEditGender] = useState(currentUser.gender || "unspecified");
+  const [editLookingFor, setEditLookingFor] = useState(currentUser.lookingFor || "everyone");
   const [editLocation, setEditLocation] = useState(currentUser.location);
   const [editBio, setEditBio] = useState(currentUser.bio || "");
   const [maxDistance, setMaxDistance] = useState(() => Number(localStorage.getItem(`blindspark_max_distance_${currentUser.id}`) || "60"));
@@ -140,6 +142,8 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
       name: editName.trim() || currentUser.name,
       age: Math.max(18, Number(editAge) || currentUser.age),
       heightCm: Math.min(230, Math.max(120, Number(editHeight) || currentUser.heightCm || 170)),
+      gender: editGender,
+      lookingFor: editLookingFor,
       location: editLocation.trim() || currentUser.location,
       bio: editBio.trim(),
     };
@@ -294,6 +298,25 @@ export default function Dashboard({ currentUser, onLogout, onProfileUpdate, onRe
                 <div className="grid grid-cols-2 gap-3">
                   <input value={editAge} onChange={(e) => setEditAge(e.target.value.replace(/\D/g, ""))} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Age" />
                   <input value={editHeight} onChange={(e) => setEditHeight(e.target.value.replace(/\D/g, ""))} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="Height cm" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-[12px] font-black text-[#7b6c66]">
+                    I am
+                    <select value={editGender} onChange={(e) => setEditGender(e.target.value)} className="mt-1 w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-3 text-[15px] bg-white text-[#2b1b18]">
+                      <option value="female">Female</option>
+                      <option value="male">Male</option>
+                      <option value="non-binary">Non-binary</option>
+                      <option value="unspecified">Prefer not to say</option>
+                    </select>
+                  </label>
+                  <label className="text-[12px] font-black text-[#7b6c66]">
+                    Looking for
+                    <select value={editLookingFor} onChange={(e) => setEditLookingFor(e.target.value)} className="mt-1 w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-3 text-[15px] bg-white text-[#2b1b18]">
+                      <option value="female">Women</option>
+                      <option value="male">Men</option>
+                      <option value="everyone">Everyone</option>
+                    </select>
+                  </label>
                 </div>
                 <input value={editLocation} onChange={(e) => setEditLocation(e.target.value)} className="w-full h-14 rounded-2xl border-2 border-[#2b1b18] px-4 text-[17px]" placeholder="City" />
                 <textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} className="w-full rounded-2xl border-2 border-[#2b1b18] px-4 py-3 text-[17px]" rows={3} placeholder="About you" />
