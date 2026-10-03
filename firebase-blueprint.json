@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "User profile containing personality archetype, bio, and preferences.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "gender": { "type": "string" },
+        "lookingFor": { "type": "string" },
+        "location": { "type": "string" },
+        "archetype": { "type": "string" },
+        "quizAnswers": { "type": "object" },
+        "bio": { "type": "string" },
+        "sparkPrompts": { "type": "object" },
+        "isAI": { "type": "boolean" }
+      },
+      "required": ["id", "name", "archetype", "bio"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "Connection between two compatible users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "users": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "score": { "type": "number" },
+        "unlocked": { "type": "boolean" }
+      },
+      "required": ["id", "users", "score"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message sent between matches.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "senderId", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "profiles/{profileId}": {
+      "schema": "Profile",
+      "description": "Collection of all real and simulated local profiles"
+    },
+    "matches/{matchId}": {
+      "schema": "Match",
+      "description": "Collection of matching pairs"
+    },
+    "matches/{matchId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Subcollection of chat messages for a specific match"
+    }
+  }
+}

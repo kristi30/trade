@@ -5,7 +5,7 @@ export interface ArchetypeDetails {
   name: string;
   tagline: string;
   description: string;
-  gradient: string;
+  gradient: string; // Tailwind class string
   textColor: string;
   sparkColor: string;
   traits: string[];
@@ -29,9 +29,9 @@ export interface Profile {
 
 export interface Match {
   id: string;
-  users: string[];
-  createdAt: any;
-  score: number;
+  users: string[]; // Two user IDs
+  createdAt: any; // Firestore Timestamp
+  score: number; // 0-100 Compatibility Score
   unlocked?: boolean;
 }
 
@@ -39,7 +39,7 @@ export interface Message {
   id: string;
   senderId: string;
   text: string;
-  createdAt: any;
+  createdAt: any; // Firestore Timestamp
   imageUrl?: string;
 }
 

@@ -117,3 +117,74 @@ For a deployed mobile build, host that Express server on HTTPS and set:
 ```env
 VITE_API_BASE_URL=https://your-api.example.com
 ```
+
+Then rebuild and sync the app.
+
+On the hosted PWA, an empty `VITE_API_BASE_URL` uses the same-origin `/api/chat-reply` endpoint automatically. A Capacitor-native build with no API URL uses the built-in conversational fallback, so chat still works.
+
+## Google Sign-In
+
+The web version still uses Firebase `signInWithPopup`. A WKWebView app should use a proper native OAuth integration before public release. The iPhone test build therefore uses local test mode instead of pretending web popup auth is production-ready.
+
+Before App Store release, configure a Firebase iOS app, add its `GoogleService-Info.plist`, and connect a native Google/Firebase authentication plugin or native sign-in flow.
+
+## Before a public App Store release
+
+The current package is a strong test/MVP build, not the final production release. Before publishing, complete at least:
+
+- native Google/Apple sign-in as appropriate;
+- deployed HTTPS backend for AI chat;
+- production Firestore security rules and server-side bot logic;
+- account deletion flow;
+- privacy policy and terms;
+- abuse/reporting moderation workflow;
+- final app icon, launch screen and App Store screenshots;
+- testing on several iPhone sizes;
+- App Store privacy disclosures.
+
+
+---
+
+# PWA / install without Xcode
+
+This project is also configured as a Progressive Web App (PWA), so it can be installed from Safari on iPhone without Xcode.
+
+## PWA features included
+
+- Home Screen app icon and standalone/full-screen app window.
+- iPhone safe-area support.
+- Install helper shown inside the app with iPhone-specific instructions.
+- Local test mode available in the browser and installed PWA — no Google account or backend is required to explore the app.
+- Service worker caching of the app shell and same-origin static assets for basic offline reopening.
+- Location continues to use the browser's native location permission on the PWA.
+- Netlify and Vercel SPA deployment configuration included.
+
+## Build the PWA
+
+```bash
+npm install
+npm run pwa:build
+```
+
+The deployable site is created in `dist/`.
+
+## Install on iPhone (no Xcode)
+
+A PWA must be opened from an HTTPS website; an unzipped local folder cannot be installed directly by iOS.
+
+1. Deploy the `dist/` folder to any HTTPS static host (for example Netlify, Vercel, Cloudflare Pages, Firebase Hosting, or your own HTTPS server).
+2. Open the deployed address in **Safari** on the iPhone.
+3. Tap Safari's **Share** button.
+4. Choose **Add to Home Screen**.
+5. Tap **Add**.
+6. Launch **blindSpark** from the new Home Screen icon.
+
+For a quick test, choose **Try blindSpark — no account needed**. Test profile, matches, and chats are stored locally on that device.
+
+## After changing the code
+
+```bash
+npm run pwa:build
+```
+
+Upload the new `dist/` contents to the same host. The service worker uses network-first navigation and will refresh static assets as they are requested.

@@ -1,0 +1,36 @@
+BLINDSPARK PWA — INSTALL ON IPHONE WITHOUT XCODE
+
+This version is a Progressive Web App (PWA).
+
+IMPORTANT:
+An iPhone cannot install a PWA directly from a ZIP file. The app must first be hosted on an HTTPS website.
+You do NOT need Xcode for this PWA version.
+
+EASIEST FLOW
+1. Put this project on an HTTPS host such as Netlify, Vercel, Cloudflare Pages, or Firebase Hosting.
+2. The build command is: npm run pwa:build
+3. The output folder is: dist
+4. Open the HTTPS address in Safari on your iPhone.
+5. Tap Share.
+6. Tap Add to Home Screen.
+7. Tap Add.
+8. Open blindSpark from the Home Screen icon.
+9. Tap "Try blindSpark — no account needed" to test the app without Google login or the AI server.
+
+WHAT WAS ADDED
+- PWA manifest
+- Home Screen icons (including iPhone apple-touch-icon)
+- standalone/full-screen mode
+- iPhone safe-area support
+- service worker for app-shell/static caching
+- in-app install instructions for iPhone
+- local test mode that works in the PWA
+- location through browser permissions
+- Netlify/Vercel deployment config
+
+LOCAL TEST ON A COMPUTER
+npm install
+npm run pwa:build
+npm run pwa:preview
+
+Then open the local address shown by Vite. Home Screen installation on iPhone still requires HTTPS hosting.

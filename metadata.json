@@ -1,0 +1,6 @@
+{
+  "name": "blindSpark",
+  "description": "A visually polished, text-only blind dating application that uses Myers-Briggs-inspired personality matching algorithms to connect compatible users locally, featuring live Gemini-powered conversation partners.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
