@@ -39,7 +39,6 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
   const [swipedIds, setSwipedIds] = useState<Set<string>>(new Set());
   const [showReasons, setShowReasons] = useState(false);
   const [showMatchModal, setShowMatchModal] = useState<{ match: Match; partner: Profile } | null>(null);
-  const [dragX, setDragX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
 
   useEffect(() => {
@@ -229,7 +228,6 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
 
     // Move to next card
     setShowReasons(false);
-    setDragX(0);
     setCurrentIndex((prev) => prev + 1);
     window.setTimeout(() => setIsSwiping(false), 280);
   };
@@ -301,32 +299,17 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
           dragConstraints={{ left: 0, right: 0 }}
           dragElastic={0.92}
           dragMomentum={false}
-          onDrag={(_event, info) => setDragX(info.offset.x)}
           onDragEnd={(_event, info) => {
             const threshold = 95;
             if (info.offset.x >= threshold) {
               void handleSwipe(true);
             } else if (info.offset.x <= -threshold) {
               void handleSwipe(false);
-            } else {
-              setDragX(0);
             }
           }}
           style={{ touchAction: "pan-y" }}
           className={`w-full bg-gradient-to-b ${archetypeInfo.gradient} to-white border border-stone-200/85 rounded-3xl overflow-hidden flex flex-col shadow-xl shadow-stone-100/40 relative min-h-[540px] md:min-h-[580px] p-6 text-stone-900 ${isSwiping ? "pointer-events-none" : "cursor-grab active:cursor-grabbing"}`}
         >
-          <div
-            className="absolute top-24 left-5 z-30 rotate-[-10deg] border-4 border-stone-700 text-stone-800 bg-white/85 px-4 py-2 rounded-xl font-black tracking-[0.18em] text-xl pointer-events-none"
-            style={{ opacity: dragX < 0 ? Math.min(Math.abs(dragX) / 110, 1) : 0 }}
-          >
-            PASS
-          </div>
-          <div
-            className="absolute top-24 right-5 z-30 rotate-[10deg] border-4 border-rose-500 text-rose-600 bg-white/85 px-4 py-2 rounded-xl font-black tracking-[0.18em] text-xl pointer-events-none"
-            style={{ opacity: dragX > 0 ? Math.min(Math.abs(dragX) / 110, 1) : 0 }}
-          >
-            SPARK
-          </div>
           {/* Subtle background radar circles */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] border border-stone-300/10 rounded-full pointer-events-none animate-pulse" />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[450px] h-[450px] border border-stone-300/10 rounded-full pointer-events-none" />
@@ -409,9 +392,8 @@ export default function Discovery({ currentUser, onMatchCreated }: DiscoveryProp
             ))}
           </div>
 
-          <p className="text-[10px] text-stone-400 font-bold text-center mt-4 z-10">Swipe left to Pass • Swipe right to Spark</p>
           {/* Swipe Buttons */}
-          <div className="grid grid-cols-2 gap-4 mt-2 z-10">
+          <div className="grid grid-cols-2 gap-4 mt-6 z-10">
             <button
               onClick={() => handleSwipe(false)}
               disabled={isSwiping}
