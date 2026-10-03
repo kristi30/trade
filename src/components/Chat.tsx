@@ -50,6 +50,7 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
   const [recording, setRecording] = useState(false);
   const [recordedAudio, setRecordedAudio] = useState<string | null>(null);
   const [partnerReadAt, setPartnerReadAt] = useState(0);
+  const [milestoneToast, setMilestoneToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -165,6 +166,7 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
   const unlockedPrompt = totalMessagesTexted >= 15 ? Object.entries(partnerProfile.sparkPrompts || {})[0] : undefined;
   const latestOutgoing = [...messages].reverse().find((message) => message.senderId === currentUser.id);
   const latestOutgoingMillis = latestOutgoing?.createdAt?.toMillis?.() || (latestOutgoing?.createdAt?.seconds ? latestOutgoing.createdAt.seconds * 1000 : 0);
+  const conversationStarter = getConversationStarter(currentUser, partnerProfile);
 
   // Images are type/size checked first. Real-account uploads are also sent through
   // the server moderation hook before being stored in Firebase Storage.
@@ -544,6 +546,11 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
 
   return (
     <div className="chat-screen-shell flex flex-col bg-white md:border md:border-stone-200/75 rounded-none md:rounded-3xl relative md:shadow-2xl">
+      {milestoneToast && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[70] w-[calc(100%-2rem)] rounded-2xl bg-[#2b1b18] text-white px-4 py-3 text-center text-[12px] font-black shadow-xl">
+          {milestoneToast}
+        </div>
+      )}
       {/* Chat Header */}
       <div className={`p-4 bg-gradient-to-r ${partnerArchetype.gradient} border-b border-stone-200/60 flex items-center gap-3 z-10 shadow-xs`}>
         <button
@@ -637,7 +644,7 @@ export default function Chat({ match, currentUser, partnerProfile, onBack, onVie
               <Sparkles className="w-5 h-5 text-rose-500 animate-pulse" />
             </div>
             <p className="text-xs text-stone-500 font-medium max-w-xs leading-relaxed">
-              Spark ignited! Send a message to explore compatibility. Share things you wouldn't tell a stranger.
+              Spark ignited! Try: “{conversationStarter}”
             </p>
           </div>
         )}
