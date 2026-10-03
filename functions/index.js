@@ -1,7 +1,9 @@
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
+const { getAuth } = require("firebase-admin/auth");
 
 initializeApp();
 
@@ -72,3 +74,35 @@ exports.notifyNewMessage = onDocumentCreated(
     }
   }
 );
+
+
+exports.cleanupMatchMessages = onDocumentDeleted(
+  "matches/{matchId}",
+  async (event) => {
+    const db = getFirestore();
+    await db.recursiveDelete(event.data.ref).catch(() => undefined);
+  }
+);
+
+exports.deleteMyAccountData = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
+
+  const db = getFirestore();
+
+  const [outgoingLikes, incomingLikes, matches] = await Promise.all([
+    db.collection("likes").where("fromUserId", "==", uid).get(),
+    db.collection("likes").where("toUserId", "==", uid).get(),
+    db.collection("matches").where("users", "array-contains", uid).get(),
+  ]);
+
+  await Promise.all([
+    ...outgoingLikes.docs.map((item) => item.ref.delete()),
+    ...incomingLikes.docs.map((item) => item.ref.delete()),
+    ...matches.docs.map((item) => db.recursiveDelete(item.ref)),
+    db.recursiveDelete(db.doc(`profiles/${uid}`)),
+  ]);
+
+  await getAuth().deleteUser(uid);
+  return { deleted: true };
+});
